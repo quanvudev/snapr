@@ -1,4 +1,3 @@
-use crate::capture;
 use image::{RgbaImage, imageops};
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
@@ -44,11 +43,39 @@ pub struct Overlay {
     hover: Option<usize>,
 }
 
+fn desktop() -> Option<(i32, i32, RgbaImage)> {
+    let bounds = xcap::Monitor::all()
+        .ok()?
+        .iter()
+        .map(|m| Some((m.x().ok()?, m.y().ok()?, m.width().ok()?, m.height().ok()?)))
+        .collect::<Option<Vec<_>>>()?;
+    let ux = bounds.iter().map(|b| b.0).min()?;
+    let uy = bounds.iter().map(|b| b.1).min()?;
+    let right = bounds.iter().map(|b| b.0 + b.2 as i32).max()?;
+    let bottom = bounds.iter().map(|b| b.1 + b.3 as i32).max()?;
+    let (uw, uh) = ((right - ux) as u32, (bottom - uy) as u32);
+    if uw == 0 || uh == 0 {
+        return None;
+    }
+    let shots = std::thread::scope(|s| {
+        let handles: Vec<_> = bounds
+            .iter()
+            .map(|&(x, y, _, _)| {
+                s.spawn(move || xcap::Monitor::from_point(x, y).ok()?.capture_image().ok())
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().ok().flatten()).collect::<Option<Vec<_>>>()
+    })?;
+    let mut canvas = RgbaImage::from_pixel(uw, uh, image::Rgba([0, 0, 0, 255]));
+    for (&(x, y, _, _), img) in bounds.iter().zip(&shots) {
+        imageops::replace(&mut canvas, img, (x - ux) as i64, (y - uy) as i64);
+    }
+    Some((ux, uy, canvas))
+}
+
 impl Overlay {
     pub fn open(event_loop: &ActiveEventLoop, pick: Pick) -> Option<Self> {
-        let monitor = capture::cursor_monitor().ok()?;
-        let (mx, my) = (monitor.x().ok()?, monitor.y().ok()?);
-        let frame = monitor.capture_image().ok()?;
+        let (mx, my, frame) = desktop()?;
         let (w, h) = frame.dimensions();
         if w == 0 || h == 0 {
             return None;
@@ -66,6 +93,8 @@ impl Overlay {
             .with_inner_size(PhysicalSize::new(w, h))
             .with_skip_taskbar(true);
         let window = Rc::new(event_loop.create_window(attrs).ok()?);
+        let _ = window.request_inner_size(PhysicalSize::new(w, h));
+        window.set_outer_position(PhysicalPosition::new(mx, my));
         let context = Context::new(window.clone()).ok()?;
         let surface = Surface::new(&context, window.clone()).ok()?;
         window.set_cursor(CursorIcon::Crosshair);

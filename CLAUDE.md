@@ -24,6 +24,7 @@ The app runs **two event loops in one process**:
 
 - **Tauri (tao) on the main thread** owns the tray, global hotkeys (`tauri-plugin-global-shortcut`), the settings webview window (label `main`) and config state.
 - **A winit event loop on a dedicated thread** (`spawn_capture` in `src-tauri/src/lib.rs`, built `with_any_thread(true)`) owns the native capture overlay and the preview toast. They are drawn with softbuffer.
+  - The capture overlay (window/area/text/record pickers) covers all monitors (`overlay::desktop()` stitches every monitor into one frame over the union rect), while fullscreen capture, the toast and the record-picker desktop fallback stay on the cursor's monitor.
   - This split exists because Tauri window events carry no mouse or keyboard input, which the overlay needs.
   - Hotkey handlers send `Action` (Fullscreen / Pick(Window) / Pick(Area) / Text / Record) through an `EventLoopProxy` that is stored in managed `State`. There are five hotkey slots (`Hotkeys::combos()` is `[String; 5]`, order fullscreen, window, area, text, record; defaults `1`..`5`). `text` has a field-level `#[serde(default)]` so an older config without it stays unbound (empty) instead of colliding with its `record = "4"`.
   - Recording: `Action::Record` opens the window picker with `Snap.mode = Mode::Record`. The picked hwnd goes to `Recorder::start` (`recorder.rs`, `windows-capture`: WGC + H.264 MP4) as `Target::Window` instead of the save worker. In record mode `Snap::window_event` intercepts a left press whose `Overlay::hovered()` is `None` or a desktop window (`Progman`/`WorkerW`) and records the monitor under the cursor as `Target::Monitor`; the window screenshot picker uses `Mode::Shot`, so it is unaffected. The recorder lives in `State.recording` (`Mutex<Option<Recorder>>`) so the main thread can stop it: the record hotkey (while recording), the tray "Stop recording" item (`State.stop`) and Quit take it out of the mutex, then call `stop()`, which finalizes synchronously. On stop or window close the handler finishes the file and sends `Action::Recorded`, which clears `State.recording`, restores the tooltip and opens the toast. Never hold `State.recording` while calling `stop()`.
@@ -32,7 +33,7 @@ The app runs **two event loops in one process**:
   - The capture thread reads config from `State.cfg` (`RwLock`) and reports status and errors through the tray tooltip.
 
 Backend modules:
-- `capture.rs`, `overlay.rs` and `toast.rs` are v1 code kept verbatim.
+- `capture.rs`, `overlay.rs` and `toast.rs` come from v1. `overlay.rs` and `toast.rs` re-apply their physical size and position after `create_window` (mixed-DPI fix), and the overlay spans all monitors.
   - Win32 capture uses `PrintWindow` + DWM bounds, with rounded corners added.
   - Saves a timestamped PNG and can also copy the image to the clipboard. `capture::unique_path(dir, ext)` gives the timestamp + `_N` name for both PNGs and recordings.
 - `config.rs` holds the TOML config at `app_config_dir()/config.toml` (`%APPDATA%\com.quanvudev.snapr`).

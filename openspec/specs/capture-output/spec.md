@@ -83,3 +83,21 @@ If producing or saving a capture fails, the app SHALL show the error in the tray
 #### Scenario: Successful save after an error
 - **WHEN** a capture is saved successfully after an earlier failure
 - **THEN** the tray tooltip returns to the normal status text
+
+### Requirement: Overlay covers exactly the monitor under the cursor
+The capture overlay SHALL open on the monitor under the cursor and cover exactly that monitor's bounds, whatever that monitor's display scaling is relative to the primary monitor.
+
+#### Scenario: Secondary monitor with different scaling
+- **WHEN** the user presses the window or area hotkey with the cursor on a monitor whose scaling differs from the primary monitor
+- **THEN** the overlay opens on that monitor, covers its full area, and does not extend onto another monitor
+
+#### Scenario: Selection matches what is shown
+- **WHEN** the user selects an area or a window in that overlay
+- **THEN** the saved image matches the region highlighted in the overlay
+
+### Requirement: Preview toast shows the thumbnail on every monitor
+The preview toast SHALL show the capture thumbnail on any monitor, whatever that monitor's display scaling is relative to the primary monitor.
+
+#### Scenario: Toast on a secondary monitor with different scaling
+- **WHEN** a capture is saved while the cursor is on a monitor whose scaling differs from the primary monitor
+- **THEN** the toast appears in the bottom-right of that monitor's work area and shows the capture thumbnail, not a blank window

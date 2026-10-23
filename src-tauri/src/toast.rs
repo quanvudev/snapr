@@ -59,6 +59,8 @@ impl Toast {
             .with_inner_size(PhysicalSize::new(ow, oh))
             .with_skip_taskbar(true);
         let window = Rc::new(event_loop.create_window(attrs).ok()?);
+        let _ = window.request_inner_size(PhysicalSize::new(ow, oh));
+        window.set_outer_position(PhysicalPosition::new(px, py));
         let context = Context::new(window.clone()).ok()?;
         let surface = Surface::new(&context, window.clone()).ok()?;
         window.set_cursor(CursorIcon::Pointer);
