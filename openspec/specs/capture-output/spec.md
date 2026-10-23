@@ -42,6 +42,10 @@ The preview toast SHALL appear only after the capture's PNG file has been writte
 - **WHEN** a capture's file has been written and the preview duration is greater than 0
 - **THEN** the toast showing that capture appears in the bottom-right of the work area
 
+#### Scenario: Toast does not wait for the clipboard
+- **WHEN** copy to clipboard is enabled and a capture's file has been written
+- **THEN** the toast appears without waiting for the clipboard copy to finish
+
 #### Scenario: Preview disabled
 - **WHEN** a capture's file has been written and the preview duration is 0
 - **THEN** no toast appears
@@ -66,11 +70,15 @@ Captures SHALL be saved one at a time in the order they were taken, into the con
 - **THEN** after the last save finishes, the clipboard holds the most recent capture
 
 ### Requirement: Save errors are reported in the tray tooltip
-If producing, saving or copying a capture fails, the app SHALL show the error in the tray tooltip and show no toast for that capture. A successful save SHALL restore the normal tooltip.
+If producing or saving a capture fails, the app SHALL show the error in the tray tooltip and show no toast for that capture. If only the clipboard copy fails, the app SHALL show the error in the tray tooltip and still show the toast for the saved file. A successful save SHALL restore the normal tooltip.
 
 #### Scenario: Folder not writable
 - **WHEN** the output folder cannot be created or written
 - **THEN** the tray tooltip shows `snapr: <error>` and no toast appears
+
+#### Scenario: Clipboard copy fails
+- **WHEN** copy to clipboard is enabled, the file is saved, and copying to the clipboard fails
+- **THEN** the toast for the saved file is shown and the tray tooltip shows `snapr: <error>`
 
 #### Scenario: Successful save after an error
 - **WHEN** a capture is saved successfully after an earlier failure

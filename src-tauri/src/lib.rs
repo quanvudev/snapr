@@ -186,7 +186,7 @@ struct Snap {
     mode: Mode,
 }
 
-fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, shot: Shot) {
+fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut capture::BackgroundCache, shot: Shot) {
     let Some(img) = (match shot {
         Shot::Ready(img) => Some(img),
         Shot::Window { hwnd, border, frame, rect } => capture::window(hwnd, border)
@@ -202,21 +202,23 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, shot: Shot) {
         if cfg.padding.round {
             capture::mask_corners(&mut img, cfg.padding.radius as f32);
         }
-        let bg = match cfg.padding.image.as_str() {
-            "" => None,
-            path => image::open(path).map_err(|e| bg_error = Some(e)).ok(),
-        };
-        capture::pad(&img, cfg.padding.size, bg.as_ref())
+        let bg = backgrounds.get(&cfg.padding.image).map_err(|e| bg_error = Some(e)).ok().flatten();
+        capture::pad(&img, cfg.padding.size, bg)
     } else {
         img
     };
-    match capture::save(&img, &cfg) {
+    match capture::write(&img, &cfg) {
         Ok(path) => {
             refresh(app);
             if let Some(e) = bg_error {
                 tooltip(app, &format!("snapr: {e}"));
             }
-            let _ = proxy.send_event(Action::Saved(img, path));
+            let _ = proxy.send_event(Action::Saved(img.clone(), path));
+            if cfg.copy_to_clipboard
+                && let Err(e) = capture::copy(&img)
+            {
+                tooltip(app, &format!("snapr: {e}"));
+            }
         }
         Err(e) => tooltip(app, &format!("snapr: {e}")),
     }
@@ -358,9 +360,10 @@ fn spawn_capture(app: AppHandle) -> EventLoopProxy<Action> {
         let worker = app.clone();
         std::thread::spawn(move || {
             let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+            let mut backgrounds = capture::BackgroundCache::default();
             for job in queue {
                 match job {
-                    Job::Save(shot) => work(&worker, &proxy, shot),
+                    Job::Save(shot) => work(&worker, &proxy, &mut backgrounds, shot),
                     Job::Text(shot) => read_text(&worker, shot),
                 }
             }

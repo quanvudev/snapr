@@ -3,6 +3,7 @@ use image::imageops::{self, FilterType};
 use image::{DynamicImage, RgbaImage};
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use std::ffi::c_void;
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
@@ -40,19 +41,46 @@ pub fn pad(img: &RgbaImage, p: u32, bg: Option<&DynamicImage>) -> RgbaImage {
     canvas
 }
 
-pub fn save(img: &RgbaImage, cfg: &Config) -> Result<PathBuf, Box<dyn Error>> {
+pub fn write(img: &RgbaImage, cfg: &Config) -> Result<PathBuf, Box<dyn Error>> {
     let dir = cfg.dir();
     std::fs::create_dir_all(&dir)?;
     let path = unique_path(&dir, "png");
     img.save(&path)?;
-    if cfg.copy_to_clipboard {
-        arboard::Clipboard::new()?.set_image(arboard::ImageData {
-            width: img.width() as usize,
-            height: img.height() as usize,
-            bytes: img.as_raw().into(),
-        })?;
-    }
     Ok(path)
+}
+
+pub fn copy(img: &RgbaImage) -> Result<(), Box<dyn Error>> {
+    arboard::Clipboard::new()?.set_image(arboard::ImageData {
+        width: img.width() as usize,
+        height: img.height() as usize,
+        bytes: img.as_raw().into(),
+    })?;
+    Ok(())
+}
+
+#[derive(Default)]
+pub struct BackgroundCache(Option<(String, SystemTime, DynamicImage)>);
+
+impl BackgroundCache {
+    pub fn get(&mut self, path: &str) -> Result<Option<&DynamicImage>, Box<dyn Error>> {
+        if path.is_empty() {
+            self.0 = None;
+            return Ok(None);
+        }
+        let modified = match std::fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(modified) => modified,
+            Err(e) => {
+                self.0 = None;
+                return Err(e.into());
+            }
+        };
+        let fresh = matches!(&self.0, Some((p, m, _)) if p == path && *m == modified);
+        if !fresh {
+            self.0 = None;
+            self.0 = Some((path.to_string(), modified, image::open(path)?));
+        }
+        Ok(self.0.as_ref().map(|(_, _, img)| img))
+    }
 }
 
 pub fn unique_path(dir: &Path, ext: &str) -> PathBuf {
