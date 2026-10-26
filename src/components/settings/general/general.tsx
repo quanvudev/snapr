@@ -4,6 +4,7 @@ import { ClipboardRow } from "./clipboard-row";
 import { FolderRow } from "./folder-row";
 import { LanguageRow } from "./language-row";
 import { StartupRow } from "./startup-row";
+import { ThemeRow } from "./theme-row";
 
 const heading = (s: string) => <h3 className="px-1 text-xs font-medium text-muted-foreground">{s}</h3>;
 
@@ -20,6 +21,7 @@ export function General() {
       <ItemGroup className="gap-3">
         <StartupRow />
         <LanguageRow />
+        <ThemeRow />
       </ItemGroup>
     </>
   );

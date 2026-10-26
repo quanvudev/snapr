@@ -69,7 +69,7 @@ Settings window ↔ backend:
   - `gallery/`: `gallery.tsx` (type filter and Day / Month / Year ToggleGroups, `Empty`), `gallery-group.tsx` (collapsible day / month / year group: header chevron + label + count is the `Collapsible` trigger, the grid is the content), `gallery-item.tsx` (`other` tiles show the Shell icon plus the file name and do not open the viewer; tiles via `convertFileSrc(path, "thumb")`, `loading="lazy"`, video marker), `item-menu.tsx` (ContextMenu; Copy image only on photos), `delete-dialog.tsx` (AlertDialog), `viewer.tsx` (image fitted or `<video controls>` via `convertFileSrc(path, "media")`; capture-phase keydown for Left/Right/Escape with `preventDefault`, plus `viewer-strip.tsx`: a horizontal `ScrollArea` of the filtered items' thumbnails that centers and rings the active one and selects on click; `thumb.tsx` is the tile content shared with the grid).
   - `wide: true` in `settings/sections.ts` widens the content pane.
 - `main.tsx` disables the WebView context menu and F5/Ctrl+R/Ctrl+P, but only in production builds.
-- Always dark (`class="dark"` on `<html>`).
+- Theme is `config.theme` (`system` / `light` / `dark`, default `system`): `hooks/use-theme.ts` toggles `class="dark"` on `<html>` (following `prefers-color-scheme` for `system`) and calls `api.setWindowTheme` so Mica matches. The capture overlay and toast are not themed.
 
 ## Conventions
 

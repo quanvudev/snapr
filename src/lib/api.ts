@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Hotkeys = { modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string };
+export type Theme = "system" | "light" | "dark";
 export type Config = {
   output_dir: string;
   copy_to_clipboard: boolean;
@@ -13,6 +14,7 @@ export type Config = {
   text_capture: boolean;
   padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number };
   language: "vi" | "en";
+  theme: Theme;
   hotkeys: Hotkeys;
 };
 export type Row = { combo: string; error: "invalid" | "needs_modifier" | "duplicate" | null; in_use: boolean };
@@ -41,4 +43,5 @@ export const api = {
   onSettingsOpen: (cb: (section: string) => void) => listen<string>("settings-open", (e) => cb(e.payload)),
   onGalleryChanged: (cb: () => void) => listen("gallery-changed", cb),
   hide: () => getCurrentWindow().hide(),
+  setWindowTheme: (theme: Theme) => getCurrentWindow().setTheme(theme === "system" ? null : theme),
 };

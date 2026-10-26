@@ -3,10 +3,12 @@ import { Settings } from "@/components/settings";
 import { Setup } from "@/components/setup";
 import { Splash } from "@/components/splash";
 import { useSettings } from "@/hooks/use-settings";
+import { useTheme } from "@/hooks/use-theme";
 import "./App.css";
 
 function App() {
   const settings = useSettings();
+  useTheme(settings?.cfg.theme);
   if (!settings) return null;
   if (settings.view === "splash") return <Splash version={settings.version} />;
 
