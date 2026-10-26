@@ -7,6 +7,7 @@ export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void,
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (recording !== null) {
         e.preventDefault();
         if (e.code === "Escape") return setRecording(null);

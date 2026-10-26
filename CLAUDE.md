@@ -43,25 +43,32 @@ Backend modules:
   - `record_fps` is read only through `Config::fps()`, which returns 60 for 60 and 30 for anything else; `recorder.rs` derives both the frame throttle and the encoder rate from it.
 - `ocr.rs` wraps `Windows.Media.Ocr` (`windows` 0.62, same version as `windows-capture` pulls in): `available()` and `extract()` using the Windows profile languages, downscaling above `MaxImageDimension`.
 - `settings.rs` holds the commands the settings window invokes, plus the HKCU `Run` registry autostart.
+- `gallery.rs` lists the output folder (png/mp4 only, no subfolders, `date = min(created, modified)`, newest first) and holds the gallery commands. `guard(app, path)` requires the canonical parent to equal the canonical output folder and a png/mp4 extension; every command and scheme goes through it, so `..\` or outside paths fail. `gallery_delete` uses `SHFileOperationW` (Recycle Bin); `gallery_copy` refuses mp4.
+  - Two async URI schemes are registered in `run`: `thumb` returns Windows Shell thumbnails (`IShellItemImageFactory`) from an STA worker pool, as PNG with `Cache-Control: max-age=3600`; `media` serves the full file with `Range` (206 + `Content-Range`). Both return 404 on a guard or Shell failure.
 
 Settings window ↔ backend:
 - The JSON contract uses snake_case fields, while command argument names are camelCase on the JS side.
-- Commands: `load`, `defaults`, `resolve_dir`, `check`, `save`, `open_folder`, `open_config_file`, `open_settings`, `open_language_settings` (spawns `explorer ms-settings:regionlanguage`). `check` takes `text` (text slot active); `load` returns `ocr_available`.
+- Commands: `load`, `defaults`, `resolve_dir`, `check`, `save`, `open_folder`, `open_config_file`, `open_settings`, `open_language_settings` (spawns `explorer ms-settings:regionlanguage`). `check` takes `text` (text slot active); `load` returns `ocr_available`. Gallery commands (`gallery_list`, `gallery_open`, `gallery_reveal`, `gallery_copy`, `gallery_delete`) live in `gallery.rs`.
 - `save` is called on every change from the settings view (autosave; no Save/Cancel). The setup view saves once on Start.
 - `save` applies immediately by calling `apply()` in `lib.rs`, which unregisters all hotkeys, re-registers them and updates the tooltip. There is no restart and no file polling.
 - `check` reports hotkey errors (`invalid` / `needs_modifier` / `duplicate`) and `in_use`.
   - `in_use` is probed by test-registering the combo.
   - A combo snapr itself has registered counts as free.
-- One frameless (`decorations: false`), transparent, Mica, non-resizable `main` window is used for three views: splash (480x300, first run only, shown from `setup`), setup (first run) and settings (sidebar: General / Capture / Preview / Recording / Hotkeys / About).
-  - `show_settings` sizes it to `min(1366x768, monitor work area)`, centers, shows and emits `settings-open`. The tray "Settings…" item and the splash (via `open_settings`) both use it.
+- One frameless (`decorations: false`), transparent, Mica, non-resizable `main` window is used for three views: splash (480x300, first run only, shown from `setup`), setup (first run) and settings (sidebar: Gallery / General / Capture / Preview / Recording / Hotkeys / About; Gallery is the only `wide` one).
+  - `show_settings(app, section)` sizes it to `min(1366x768, monitor work area)`, centers, shows and emits `settings-open` with the section id. The tray menu is Gallery (`"gallery"`), Settings… (`"general"`), Open folder, Stop recording, Quit; `open_settings` and the splash also pass `"general"`.
+  - `Saved` and `Recorded` emit `gallery-changed` to `main`.
   - Drag via `data-tauri-drag-region`. The X button and Escape hide the window.
   - Closing the window hides it instead of exiting.
   - The frontend hides itself via `getCurrentWindow().hide()`.
 - `src/App.tsx` only picks the view (splash / setup / settings) from `useSettings`.
 - `lib/api.ts`: types and typed wrappers for every Tauri command; `invoke` is called only here. `lib/i18n.ts`: the `{ en, vi }` table `T` (default `vi`). `lib/hotkeys.ts`: `MODS`, `SLOTS`, `normalize`.
-- `hooks/use-settings.ts` owns state, load, autosave (`persist`) and the `settings-open` listener; `hooks/use-hotkey-recorder.ts` owns key recording and Escape.
+- `hooks/use-settings.ts` owns state, load, autosave (`persist`) and the `settings-open` listener (`load(true, section)` selects the section); `hooks/use-hotkey-recorder.ts` owns key recording and skips `defaultPrevented` events (the gallery viewer handles its own Escape).
+- `lib/gallery.ts` (`groupBy(items, period)` driven by the `PERIODS` mapping for day / month / year, `matches`, `isViewable`) and `hooks/use-gallery.ts` (items, filter, period, collapsed group keys (a `Set`, in memory only, kept across reloads), viewer index over photos and videos only (`kind: "other"` files are skipped by navigation, strip and delete-in-viewer), copy/delete; reloads on mount, `settings-open` and `gallery-changed`; delete moves the viewer to next, else previous, else closes).
 - `components/settings-provider.tsx` exposes it through `useSettingsContext()` (no prop drilling); `components/title-bar.tsx` is the drag strip + X.
-- Screens live in `components/splash/`, `components/setup/`, `components/settings/` (groups in `general/`, `capture/`, `preview/`, `recording/`, `hotkeys/`, `about/`, one file per row). A new settings group = a folder + an entry in `settings/sections.ts`.
+- Screens live in `components/splash/`, `components/setup/`, `components/settings/` (groups in `gallery/`, `general/`, `capture/`, `preview/`, `recording/`, `hotkeys/`, `about/`, one file per row). A new settings group = a folder + an entry in `settings/sections.ts`.
+  - `gallery/`: `gallery.tsx` (type filter and Day / Month / Year ToggleGroups, `Empty`), `gallery-group.tsx` (collapsible day / month / year group: header chevron + label + count is the `Collapsible` trigger, the grid is the content), `gallery-item.tsx` (`other` tiles show the Shell icon plus the file name and do not open the viewer; tiles via `convertFileSrc(path, "thumb")`, `loading="lazy"`, video marker), `item-menu.tsx` (ContextMenu; Copy image only on photos), `delete-dialog.tsx` (AlertDialog), `viewer.tsx` (image fitted or `<video controls>` via `convertFileSrc(path, "media")`; capture-phase keydown for Left/Right/Escape with `preventDefault`, plus `viewer-strip.tsx`: a horizontal `ScrollArea` of the filtered items' thumbnails that centers and rings the active one and selects on click; `thumb.tsx` is the tile content shared with the grid).
+  - `wide: true` in `settings/sections.ts` widens the content pane.
+- `main.tsx` disables the WebView context menu and F5/Ctrl+R/Ctrl+P, but only in production builds.
 - Always dark (`class="dark"` on `<html>`).
 
 ## Conventions

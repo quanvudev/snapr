@@ -9,7 +9,7 @@ use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
-    DeleteObject, GetDIBits, GetWindowDC, ReleaseDC, SelectObject,
+    DeleteObject, GetDIBits, GetWindowDC, HBITMAP, HDC, ReleaseDC, SelectObject,
 };
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -167,6 +167,24 @@ fn round_corners(img: &mut RgbaImage, radius: f32, border: [u8; 3]) {
     }
 }
 
+pub unsafe fn dib(dc: HDC, bmp: HBITMAP, w: i32, h: i32) -> Option<Vec<u8>> {
+    unsafe {
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader = BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..std::mem::zeroed()
+        };
+        let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
+        let lines = GetDIBits(dc, bmp, 0, h as u32, buf.as_mut_ptr().cast::<c_void>(), &mut bmi, DIB_RGB_COLORS);
+        (lines != 0).then_some(buf)
+    }
+}
+
 unsafe fn grab(hwnd: HWND, w: i32, h: i32) -> Option<Vec<u8>> {
     unsafe {
         let window_dc = GetWindowDC(hwnd);
@@ -181,21 +199,7 @@ unsafe fn grab(hwnd: HWND, w: i32, h: i32) -> Option<Vec<u8>> {
             let printed = PrintWindow(hwnd, mem, 2) != 0 || PrintWindow(hwnd, mem, 0) != 0;
             SelectObject(mem, old);
             if printed {
-                let mut bmi: BITMAPINFO = std::mem::zeroed();
-                bmi.bmiHeader = BITMAPINFOHEADER {
-                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: w,
-                    biHeight: -h,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB,
-                    ..std::mem::zeroed()
-                };
-                let mut buf = vec![0u8; (w as usize) * (h as usize) * 4];
-                let lines = GetDIBits(window_dc, bmp, 0, h as u32, buf.as_mut_ptr().cast::<c_void>(), &mut bmi, DIB_RGB_COLORS);
-                if lines != 0 {
-                    out = Some(buf);
-                }
+                out = dib(window_dc, bmp, w, h);
             }
         }
         if !bmp.is_null() {

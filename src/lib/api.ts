@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -16,6 +16,7 @@ export type Config = {
 };
 export type Row = { combo: string; error: "invalid" | "needs_modifier" | "duplicate" | null; in_use: boolean };
 export type Loaded = { config: Config; autostart: boolean; dir: string; first_run: boolean; ocr_available: boolean };
+export type GalleryItem = { path: string; date_ms: number; kind: "photo" | "video" | "other" };
 
 export const api = {
   load: () => invoke<Loaded>("load"),
@@ -28,6 +29,14 @@ export const api = {
   openLanguageSettings: () => invoke("open_language_settings"),
   openSettings: () => invoke("open_settings"),
   version: getVersion,
-  onSettingsOpen: (cb: () => void) => listen("settings-open", cb),
+  galleryList: () => invoke<GalleryItem[]>("gallery_list"),
+  galleryOpen: (path: string) => invoke("gallery_open", { path }),
+  galleryReveal: (path: string) => invoke("gallery_reveal", { path }),
+  galleryCopy: (path: string) => invoke("gallery_copy", { path }),
+  galleryDelete: (path: string) => invoke("gallery_delete", { path }),
+  thumbSrc: (path: string) => convertFileSrc(path, "thumb"),
+  mediaSrc: (path: string) => convertFileSrc(path, "media"),
+  onSettingsOpen: (cb: (section: string) => void) => listen<string>("settings-open", (e) => cb(e.payload)),
+  onGalleryChanged: (cb: () => void) => listen("gallery-changed", cb),
   hide: () => getCurrentWindow().hide(),
 };

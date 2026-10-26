@@ -16,7 +16,7 @@ import { SECTIONS } from "./sections";
 
 export function Settings() {
   const { t, failed, version, section, setSection } = useSettingsContext();
-  const Active = SECTIONS.find((s) => s.id === section)!.component;
+  const { component: Active, wide } = SECTIONS.find((s) => s.id === section)!;
 
   return (
     <SidebarProvider className="h-screen min-h-0 text-sm">
@@ -44,7 +44,7 @@ export function Settings() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TitleBar title={t[section]} label={t.close} />
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto max-w-3xl space-y-4 px-6 pb-6">
+          <div className={`mx-auto space-y-4 px-6 pb-6 ${wide ? "" : "max-w-3xl"}`}>
             <Active />
             {failed && <p className="text-xs text-red-500">{t.failed}</p>}
           </div>

@@ -40,7 +40,11 @@ The settings and splash windows SHALL use a dark theme over the native Windows b
 - **THEN** the window still renders the dark theme over the blurred backdrop
 
 ### Requirement: Settings are grouped in a sidebar
-The settings window SHALL show a left sidebar listing the groups General, Capture, Preview, Recording, Hotkeys and About, and a right pane showing the selected group as grouped cards. General SHALL be selected when the window opens.
+The settings window SHALL show a left sidebar listing the groups Gallery, General, Capture, Preview, Recording, Hotkeys and About, and a right pane showing the selected group. General SHALL be selected when the window is opened from Settings…, and Gallery when it is opened from the tray Gallery item.
+
+#### Scenario: Gallery group
+- **WHEN** Gallery is selected
+- **THEN** the pane shows the capture gallery described by the `gallery` capability
 
 #### Scenario: General group
 - **WHEN** General is selected
@@ -78,6 +82,10 @@ The settings window SHALL show a left sidebar listing the groups General, Captur
 - **WHEN** the user opens Settings from the tray
 - **THEN** the window reloads the current config and shows the General group
 
+#### Scenario: Open gallery from tray
+- **WHEN** the user chooses Gallery in the tray menu
+- **THEN** the window reloads the current config and shows the Gallery group
+
 ### Requirement: Changes save immediately
 Each settings change SHALL be saved and applied without a Save button. Text inputs SHALL save when they lose focus or on Enter. A change SHALL NOT be saved while any hotkey has an error; the error stays visible until fixed.
 
@@ -100,3 +108,29 @@ Each settings change SHALL be saved and applied without a Save button. Text inpu
 #### Scenario: Save fails
 - **WHEN** writing the config fails
 - **THEN** an inline error is shown in the window
+
+### Requirement: Tray menu has a Gallery item
+The tray menu SHALL list, in order, Gallery, Settings…, Open folder, Stop recording and Quit. Gallery SHALL open the window on the Gallery group. On first run, before setup is completed, both Gallery and Settings… SHALL show the setup page.
+
+#### Scenario: Gallery item
+- **WHEN** the user right-clicks the tray icon
+- **THEN** Gallery is the first menu item, above Settings…
+
+#### Scenario: Gallery on first run
+- **WHEN** setup has not been completed and the user chooses Gallery in the tray menu
+- **THEN** the window shows the setup page
+
+### Requirement: No browser context menu or reload in release builds
+In release builds the window SHALL NOT show the WebView default context menu, and F5, Ctrl+R and Ctrl+P SHALL do nothing. Context menus provided by snapr itself SHALL still open. Development builds keep the default menu and shortcuts.
+
+#### Scenario: Right-click on empty area
+- **WHEN** the user right-clicks a part of the window that has no snapr menu, in a release build
+- **THEN** no menu appears
+
+#### Scenario: Reload shortcut
+- **WHEN** the user presses F5 or Ctrl+R in a release build
+- **THEN** the window does not reload and the current state is kept
+
+#### Scenario: Gallery menu still works
+- **WHEN** the user right-clicks a gallery item in a release build
+- **THEN** the gallery item menu opens

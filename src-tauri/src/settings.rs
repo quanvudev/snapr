@@ -125,7 +125,7 @@ pub fn load(state: tauri::State<State>) -> Loaded {
 
 #[tauri::command]
 pub fn open_settings(app: AppHandle) {
-    crate::show_settings(&app);
+    crate::show_settings(&app, "general");
 }
 
 #[tauri::command]

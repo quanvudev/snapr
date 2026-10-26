@@ -1,5 +1,6 @@
 mod capture;
 mod config;
+mod gallery;
 mod ocr;
 mod overlay;
 mod recorder;
@@ -312,9 +313,13 @@ impl ApplicationHandler<Action> for Snap {
             Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot),
             Action::Text => self.pick(event_loop, Pick::Area, Mode::Text),
             Action::Record => self.pick(event_loop, Pick::Window, Mode::Record),
-            Action::Saved(img, path) => self.preview(event_loop, &img, path),
+            Action::Saved(img, path) => {
+                let _ = self.app.emit_to("main", "gallery-changed", ());
+                self.preview(event_loop, &img, path);
+            }
             Action::Recorded(img, path) => {
                 ended(&self.app);
+                let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path);
             }
             Action::RecordFailed(e) => {
@@ -382,7 +387,7 @@ fn show_splash(app: &AppHandle) {
     }
 }
 
-pub(crate) fn show_settings(app: &AppHandle) {
+pub(crate) fn show_settings(app: &AppHandle, section: &str) {
     if ocr::available() != app.state::<State>().ocr.load(Ordering::Relaxed) {
         apply(app);
     }
@@ -398,21 +403,23 @@ pub(crate) fn show_settings(app: &AppHandle) {
     let _ = w.center();
     let _ = w.show();
     let _ = w.set_focus();
-    let _ = app.emit_to("main", "settings-open", ());
+    let _ = app.emit_to("main", "settings-open", section);
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let gallery = MenuItem::with_id(app, "gallery", "Gallery", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open folder", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let stop = &app.state::<State>().stop;
-    let menu = Menu::with_items(app, &[&settings, &open, stop, &quit])?;
+    let menu = Menu::with_items(app, &[&gallery, &settings, &open, stop, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main").tooltip("snapr").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
     tray.on_menu_event(|app, e| match e.id().as_ref() {
-        "settings" => show_settings(app),
+        "gallery" => show_settings(app, "gallery"),
+        "settings" => show_settings(app, "general"),
         "open" => {
             let dir = app.state::<State>().cfg.read().unwrap().dir();
             let _ = std::process::Command::new("explorer").arg(dir).spawn();
@@ -437,6 +444,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .register_asynchronous_uri_scheme_protocol("thumb", gallery::thumb_scheme())
+        .register_asynchronous_uri_scheme_protocol("media", gallery::media_scheme)
         .setup(|app| {
             let handle = app.handle().clone();
             let path = app.path().app_config_dir()?.join("config.toml");
@@ -476,7 +485,12 @@ pub fn run() {
             settings::open_folder,
             settings::open_config_file,
             settings::open_settings,
-            settings::open_language_settings
+            settings::open_language_settings,
+            gallery::gallery_list,
+            gallery::gallery_open,
+            gallery::gallery_reveal,
+            gallery::gallery_copy,
+            gallery::gallery_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,7 +5,7 @@ import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 
 export type View = "splash" | "setup" | "settings";
-export type SectionId = "general" | "capture" | "preview" | "recording" | "hotkeys" | "about";
+export type SectionId = "gallery" | "general" | "capture" | "preview" | "recording" | "hotkeys" | "about";
 
 export function useSettings() {
   const [cfg, setCfg] = useState<Config | null>(null);
@@ -25,7 +25,7 @@ export function useSettings() {
   }, view !== "splash");
 
   const load = useCallback(
-    async (fromEvent: boolean) => {
+    async (fromEvent: boolean, openSection?: string) => {
       const s = await api.load();
       setCfg(s.config);
       setAutostart(s.autostart);
@@ -35,7 +35,7 @@ export function useSettings() {
       setFailed(false);
       if (fromEvent) {
         clearTimeout(timer.current);
-        setSection("general");
+        setSection((openSection as SectionId) || "general");
         setView(s.first_run ? "setup" : "settings");
       } else if (firstLoad.current) {
         firstLoad.current = false;
@@ -55,7 +55,7 @@ export function useSettings() {
   useEffect(() => {
     api.version().then(setVersion);
     load(false);
-    const un = api.onSettingsOpen(() => load(true));
+    const un = api.onSettingsOpen((s) => load(true, s));
     return () => {
       un.then((f) => f());
     };
