@@ -1,3 +1,5 @@
+import { APP_INFO } from "./app-info";
+
 export const LANGS = { vi: "Tiếng Việt", en: "English" };
 
 export const T = {
@@ -40,11 +42,13 @@ export const T = {
     needs_modifier: "Needs a modifier",
     duplicate: "Duplicate hotkey",
     about: "About",
+    settings: "Settings",
+    author: "Author",
     config: "Open config file",
     openFolder: "Open folder",
     reset: "Reset to defaults",
     failed: "Could not save",
-    welcome: "Welcome to snapr",
+    welcome: `Welcome to ${APP_INFO.name}`,
     welcomeSub: "Pick your defaults. You can change them later in Settings.",
     start: "Start",
     close: "Close",
@@ -108,11 +112,13 @@ export const T = {
     needs_modifier: "Cần phím bổ trợ",
     duplicate: "Trùng phím tắt",
     about: "Giới thiệu",
+    settings: "Cài đặt",
+    author: "Tác giả",
     config: "Mở tệp cấu hình",
     openFolder: "Mở thư mục",
     reset: "Đặt lại mặc định",
     failed: "Không thể lưu",
-    welcome: "Chào mừng đến với snapr",
+    welcome: `Chào mừng đến với ${APP_INFO.name}`,
     welcomeSub: "Chọn thiết lập mặc định. Bạn có thể thay đổi sau trong Cài đặt.",
     start: "Bắt đầu",
     close: "Đóng",

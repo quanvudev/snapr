@@ -73,7 +73,7 @@ fn tooltip(app: &AppHandle, text: &str) {
 fn refresh(app: &AppHandle) {
     let state = app.state::<State>();
     let text = if state.recording.lock().unwrap().is_some() {
-        "snapr: recording…".to_string()
+        "Snapr: recording…".to_string()
     } else {
         state.status.lock().unwrap().clone()
     };
@@ -116,7 +116,7 @@ fn record(app: &AppHandle, target: Target) {
             let _ = state.stop.set_enabled(true);
             refresh(app);
         }
-        Err(e) => tooltip(app, &format!("snapr: {e}")),
+        Err(e) => tooltip(app, &format!("Snapr: {e}")),
     }
 }
 
@@ -171,9 +171,9 @@ fn apply(app: &AppHandle) {
         }
     }
     let status = if failed.is_empty() {
-        "snapr".to_string()
+        "Snapr".to_string()
     } else {
-        format!("snapr: hotkey in use: {}", failed.join(", "))
+        format!("Snapr: hotkey in use: {}", failed.join(", "))
     };
     *state.status.lock().unwrap() = status;
     refresh(app);
@@ -212,16 +212,16 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
         Ok(path) => {
             refresh(app);
             if let Some(e) = bg_error {
-                tooltip(app, &format!("snapr: {e}"));
+                tooltip(app, &format!("Snapr: {e}"));
             }
             let _ = proxy.send_event(Action::Saved(img.clone(), path));
             if cfg.copy_to_clipboard
                 && let Err(e) = capture::copy(&img)
             {
-                tooltip(app, &format!("snapr: {e}"));
+                tooltip(app, &format!("Snapr: {e}"));
             }
         }
-        Err(e) => tooltip(app, &format!("snapr: {e}")),
+        Err(e) => tooltip(app, &format!("Snapr: {e}")),
     }
 }
 
@@ -242,7 +242,7 @@ fn read_text(app: &AppHandle, shot: Shot) {
         }
         Err(e) => failed(e),
     };
-    let _ = app.notification().builder().title("snapr").body(msg).show();
+    let _ = app.notification().builder().title("Snapr").body(msg).show();
 }
 
 impl ApplicationHandler<Action> for Snap {
@@ -308,7 +308,7 @@ impl ApplicationHandler<Action> for Snap {
                 Ok(img) => {
                     let _ = self.jobs.send(Job::Save(Shot::Ready(img)));
                 }
-                Err(e) => tooltip(&self.app, &format!("snapr: {e}")),
+                Err(e) => tooltip(&self.app, &format!("Snapr: {e}")),
             },
             Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot),
             Action::Text => self.pick(event_loop, Pick::Area, Mode::Text),
@@ -324,7 +324,7 @@ impl ApplicationHandler<Action> for Snap {
             }
             Action::RecordFailed(e) => {
                 ended(&self.app);
-                tooltip(&self.app, &format!("snapr: {e}"));
+                tooltip(&self.app, &format!("Snapr: {e}"));
             }
         }
     }
@@ -339,7 +339,7 @@ impl Snap {
         self.overlay = Overlay::open(event_loop, pick);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
-            tooltip(&self.app, "snapr: capture failed");
+            tooltip(&self.app, "Snapr: capture failed");
         }
     }
 
@@ -413,13 +413,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let stop = &app.state::<State>().stop;
     let menu = Menu::with_items(app, &[&gallery, &settings, &open, stop, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main").tooltip("snapr").menu(&menu);
+    let mut tray = TrayIconBuilder::with_id("main").tooltip("Snapr").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
     tray.on_menu_event(|app, e| match e.id().as_ref() {
         "gallery" => show_settings(app, "gallery"),
-        "settings" => show_settings(app, "general"),
+        "settings" => show_settings(app, "settings"),
         "open" => {
             let dir = app.state::<State>().cfg.read().unwrap().dir();
             let _ = std::process::Command::new("explorer").arg(dir).spawn();
@@ -456,7 +456,7 @@ pub fn run() {
             app.manage(State {
                 path,
                 cfg: RwLock::new(cfg),
-                status: Mutex::new("snapr".into()),
+                status: Mutex::new("Snapr".into()),
                 probe: Mutex::new(HashMap::new()),
                 ocr: AtomicBool::new(false),
                 proxy: Mutex::new(proxy),

@@ -50,7 +50,7 @@ impl Toast {
         }
         let (px, py) = position(ow as i32, oh as i32);
         let attrs = Window::default_attributes()
-            .with_title("snapr")
+            .with_title("Snapr")
             .with_decorations(false)
             .with_resizable(false)
             .with_active(false)

@@ -85,7 +85,7 @@ impl Overlay {
             Pick::Area => Vec::new(),
         };
         let attrs = Window::default_attributes()
-            .with_title("snapr")
+            .with_title("Snapr")
             .with_decorations(false)
             .with_resizable(false)
             .with_window_level(WindowLevel::AlwaysOnTop)

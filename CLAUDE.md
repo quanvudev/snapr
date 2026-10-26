@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-snapr: a Windows-only tray screenshot app (fullscreen, window, area capture with global hotkeys and a preview toast).
+Snapr: a Windows-only tray screenshot app (fullscreen, window, area capture with global hotkeys and a preview toast).
 Tauri 2 backend in `src-tauri/`, React 19 + TypeScript + Tailwind v4 + shadcn (base-ui, "base-vega") settings UI in `src/`.
 It is a port of the v1 winit app at `V:\source\repos\snapr` (commit `8ac4086`).
 
@@ -54,14 +54,14 @@ Settings window ↔ backend:
 - `check` reports hotkey errors (`invalid` / `needs_modifier` / `duplicate`) and `in_use`.
   - `in_use` is probed by test-registering the combo.
   - A combo snapr itself has registered counts as free.
-- One frameless (`decorations: false`), transparent, Mica, non-resizable `main` window is used for three views: splash (480x300, first run only, shown from `setup`), setup (first run) and settings (sidebar: Gallery / General / Capture / Preview / Recording / Hotkeys / About; Gallery is the only `wide` one).
-  - `show_settings(app, section)` sizes it to `min(1366x768, monitor work area)`, centers, shows and emits `settings-open` with the section id. The tray menu is Gallery (`"gallery"`), Settings… (`"general"`), Open folder, Stop recording, Quit; `open_settings` and the splash also pass `"general"`.
+- One frameless (`decorations: false`), transparent, Mica, non-resizable `main` window is used for three views: splash (480x300, first run only, shown from `setup`), setup (first run) and settings (sidebar: Gallery / Settings; Settings is one scrollable page stacking General / Capture / Preview / Recording / Hotkeys / About via `settings/preferences/preferences.tsx`; Gallery is the only `wide` one).
+  - `show_settings(app, section)` sizes it to `min(1366x768, monitor work area)`, centers, shows and emits `settings-open` with the section id. The tray menu is Gallery (`"gallery"`), Settings… (`"settings"`), Open folder, Stop recording, Quit; `open_settings` and the splash also pass `"settings"`.
   - `Saved` and `Recorded` emit `gallery-changed` to `main`.
   - Drag via `data-tauri-drag-region`. The X button and Escape hide the window.
   - Closing the window hides it instead of exiting.
   - The frontend hides itself via `getCurrentWindow().hide()`.
 - `src/App.tsx` only picks the view (splash / setup / settings) from `useSettings`.
-- `lib/api.ts`: types and typed wrappers for every Tauri command; `invoke` is called only here. `lib/i18n.ts`: the `{ en, vi }` table `T` (default `vi`). `lib/hotkeys.ts`: `MODS`, `SLOTS`, `normalize`.
+- `lib/api.ts`: types and typed wrappers for every Tauri command; `invoke` is called only here. `lib/i18n.ts`: the `{ en, vi }` table `T` (default `vi`). `lib/hotkeys.ts`: `MODS`, `SLOTS`, `normalize`. `lib/app-info.ts`: `APP_INFO` (name, author, links) used by the sidebar, splash, About and i18n.
 - `hooks/use-settings.ts` owns state, load, autosave (`persist`) and the `settings-open` listener (`load(true, section)` selects the section); `hooks/use-hotkey-recorder.ts` owns key recording and skips `defaultPrevented` events (the gallery viewer handles its own Escape).
 - `lib/gallery.ts` (`groupBy(items, period)` driven by the `PERIODS` mapping for day / month / year, `matches`, `isViewable`) and `hooks/use-gallery.ts` (items, filter, period, collapsed group keys (a `Set`, in memory only, kept across reloads), viewer index over photos and videos only (`kind: "other"` files are skipped by navigation, strip and delete-in-viewer), copy/delete; reloads on mount, `settings-open` and `gallery-changed`; delete moves the viewer to next, else previous, else closes).
 - `components/settings-provider.tsx` exposes it through `useSettingsContext()` (no prop drilling); `components/title-bar.tsx` is the drag strip + X.

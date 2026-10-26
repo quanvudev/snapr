@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Hotkeys = { modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string };
 export type Config = {
@@ -28,6 +29,7 @@ export const api = {
   openConfigFile: () => invoke("open_config_file"),
   openLanguageSettings: () => invoke("open_language_settings"),
   openSettings: () => invoke("open_settings"),
+  openUrl,
   version: getVersion,
   galleryList: () => invoke<GalleryItem[]>("gallery_list"),
   galleryOpen: (path: string) => invoke("gallery_open", { path }),

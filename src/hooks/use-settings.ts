@@ -5,7 +5,7 @@ import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 
 export type View = "splash" | "setup" | "settings";
-export type SectionId = "gallery" | "general" | "capture" | "preview" | "recording" | "hotkeys" | "about";
+export type SectionId = "gallery" | "settings";
 
 export function useSettings() {
   const [cfg, setCfg] = useState<Config | null>(null);
@@ -15,7 +15,7 @@ export function useSettings() {
   const [ocr, setOcr] = useState(false);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<View>("settings");
-  const [section, setSection] = useState<SectionId>("general");
+  const [section, setSection] = useState<SectionId>("settings");
   const [version, setVersion] = useState("");
   const firstLoad = useRef(true);
   const timer = useRef<number>(0);
@@ -35,7 +35,7 @@ export function useSettings() {
       setFailed(false);
       if (fromEvent) {
         clearTimeout(timer.current);
-        setSection((openSection as SectionId) || "general");
+        setSection((openSection as SectionId) || "settings");
         setView(s.first_run ? "setup" : "settings");
       } else if (firstLoad.current) {
         firstLoad.current = false;

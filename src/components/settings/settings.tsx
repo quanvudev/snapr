@@ -1,17 +1,21 @@
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
+  SidebarInset,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/components/settings-provider";
 import { TitleBar } from "@/components/title-bar";
+import { APP_INFO } from "@/lib/app-info";
+import icon from "../../../src-tauri/icons/128x128.png";
 import { SECTIONS } from "./sections";
 
 export function Settings() {
@@ -19,17 +23,21 @@ export function Settings() {
   const { component: Active, wide } = SECTIONS.find((s) => s.id === section)!;
 
   return (
-    <SidebarProvider className="h-screen min-h-0 text-sm">
-      <Sidebar collapsible="none" className="h-full border-r">
-        <SidebarHeader data-tauri-drag-region className="h-12 justify-center px-4 font-semibold">
-          snapr
+    <SidebarProvider className="h-screen min-h-0 text-sm has-data-[variant=inset]:bg-transparent">
+      <Sidebar variant="inset" collapsible="icon" className="*:data-[sidebar=sidebar]:bg-transparent">
+        <SidebarHeader data-tauri-drag-region className="h-12 flex-row items-center">
+          <img src={icon} alt="" className="pointer-events-none size-8 shrink-0" />
+          <div className="pointer-events-none grid leading-tight group-data-[collapsible=icon]:hidden">
+            <span className="font-semibold">{APP_INFO.name}</span>
+            <span className="text-xs text-muted-foreground">{version}</span>
+          </div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
             <SidebarMenu>
               {SECTIONS.map(({ id, icon: Icon }) => (
                 <SidebarMenuItem key={id}>
-                  <SidebarMenuButton isActive={section === id} onClick={() => setSection(id)}>
+                  <SidebarMenuButton isActive={section === id} tooltip={t[id]} onClick={() => setSection(id)}>
                     <Icon />
                     <span>{t[id]}</span>
                   </SidebarMenuButton>
@@ -38,18 +46,20 @@ export function Settings() {
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter className="px-4 text-xs text-muted-foreground">{version}</SidebarFooter>
       </Sidebar>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TitleBar title={t[section]} label={t.close} />
+      <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
+        <TitleBar title={t[section]} label={t.close} className="gap-1 border-b pl-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mx-2 data-vertical:h-4 data-vertical:self-center" />
+        </TitleBar>
         <ScrollArea className="min-h-0 flex-1">
-          <div className={`mx-auto space-y-4 px-6 pb-6 ${wide ? "" : "max-w-3xl"}`}>
+          <div className={`mx-auto space-y-4 p-6 ${wide ? "" : "max-w-3xl"}`}>
             <Active />
             {failed && <p className="text-xs text-red-500">{t.failed}</p>}
           </div>
         </ScrollArea>
-      </div>
+      </SidebarInset>
     </SidebarProvider>
   );
 }
