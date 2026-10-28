@@ -4,7 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-export type Hotkeys = { modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string };
+export type HotkeyMode = "fixed" | "manual";
+export type Hotkeys = { mode: HotkeyMode; modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string; manual: string[] };
 export type Theme = "system" | "light" | "dark";
 export type Config = {
   output_dir: string;
@@ -26,6 +27,7 @@ export const api = {
   defaults: () => invoke<Config>("defaults"),
   resolveDir: (outputDir: string) => invoke<string>("resolve_dir", { outputDir }),
   check: (hotkeys: Hotkeys, text: boolean) => invoke<Row[]>("check", { hotkeys, text }),
+  setListening: (on: boolean) => invoke<void>("set_listening", { on }),
   save: (config: Config, autostart: boolean) => invoke("save", { config, autostart }),
   openFolder: (outputDir: string) => invoke("open_folder", { outputDir }),
   openConfigFile: () => invoke("open_config_file"),
@@ -42,6 +44,9 @@ export const api = {
   mediaSrc: (path: string) => convertFileSrc(path, "media"),
   onSettingsOpen: (cb: (section: string) => void) => listen<string>("settings-open", (e) => cb(e.payload)),
   onGalleryChanged: (cb: () => void) => listen("gallery-changed", cb),
-  hide: () => getCurrentWindow().hide(),
+  hide: async () => {
+    await invoke("set_listening", { on: false });
+    await getCurrentWindow().hide();
+  },
   setWindowTheme: (theme: Theme) => getCurrentWindow().setTheme(theme === "system" ? null : theme),
 };

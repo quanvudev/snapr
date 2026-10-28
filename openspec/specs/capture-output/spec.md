@@ -7,7 +7,7 @@ Defines what happens after a capture is taken: saving the PNG, copying to the cl
 ## Requirements
 
 ### Requirement: Selection dismisses the overlay immediately
-After the user selects an area or a window in the capture overlay, the overlay SHALL close at once, without waiting for the image to be produced, saved or copied.
+After the user selects an area or a window in the capture overlay, the overlay SHALL close at once, without waiting for the image to be produced, saved or copied. In draw capture the overlay SHALL stay open after the area is selected and SHALL close at once when the user saves, as described by the `draw-capture` capability.
 
 #### Scenario: Area selected
 - **WHEN** the user releases the mouse after dragging an area of at least 3x3 pixels
@@ -20,6 +20,10 @@ After the user selects an area or a window in the capture overlay, the overlay S
 #### Scenario: Cancel unchanged
 - **WHEN** the user presses Escape or right-clicks in the overlay
 - **THEN** the overlay closes and nothing is saved
+
+#### Scenario: Draw capture saved
+- **WHEN** the user presses Ctrl+S in draw capture
+- **THEN** the overlay closes right away and the annotated image is saved in the background
 
 ### Requirement: Fullscreen capture saves in the background
 The fullscreen hotkey SHALL grab the monitor under the cursor when the key is pressed, then save and copy the image in the background.
@@ -84,20 +88,36 @@ If producing or saving a capture fails, the app SHALL show the error in the tray
 - **WHEN** a capture is saved successfully after an earlier failure
 - **THEN** the tray tooltip returns to the normal status text
 
-### Requirement: Overlay covers exactly the monitor under the cursor
-The capture overlay SHALL open on the monitor under the cursor and cover exactly that monitor's bounds, whatever that monitor's display scaling is relative to the primary monitor.
-
-#### Scenario: Secondary monitor with different scaling
-- **WHEN** the user presses the window or area hotkey with the cursor on a monitor whose scaling differs from the primary monitor
-- **THEN** the overlay opens on that monitor, covers its full area, and does not extend onto another monitor
-
-#### Scenario: Selection matches what is shown
-- **WHEN** the user selects an area or a window in that overlay
-- **THEN** the saved image matches the region highlighted in the overlay
-
 ### Requirement: Preview toast shows the thumbnail on every monitor
 The preview toast SHALL show the capture thumbnail on any monitor, whatever that monitor's display scaling is relative to the primary monitor.
 
 #### Scenario: Toast on a secondary monitor with different scaling
 - **WHEN** a capture is saved while the cursor is on a monitor whose scaling differs from the primary monitor
 - **THEN** the toast appears in the bottom-right of that monitor's work area and shows the capture thumbnail, not a blank window
+
+### Requirement: Overlay covers every monitor
+The capture overlay opened by the window, area, text and record hotkeys SHALL cover all monitors at once, whatever each monitor's display scaling is, showing a still image of every monitor taken when the hotkey was pressed. Areas inside the monitors' bounding rectangle that no monitor covers SHALL show as black.
+
+#### Scenario: Two monitors with different scaling
+- **WHEN** the user presses the window or area hotkey with two monitors connected at different scaling
+- **THEN** one overlay covers both monitors fully, wherever the cursor is
+
+#### Scenario: Window on the other monitor
+- **WHEN** the window picker is open and the user hovers and clicks a window on the monitor the cursor did not start on
+- **THEN** that window is highlighted and captured
+
+#### Scenario: Window across two monitors
+- **WHEN** the user clicks a window that straddles two monitors
+- **THEN** the whole window is highlighted across both monitors and captured as one image
+
+#### Scenario: Area across two monitors
+- **WHEN** the user drags an area that starts on one monitor and ends on the other
+- **THEN** the selected region of both monitors is saved as one image
+
+#### Scenario: Selection matches what is shown
+- **WHEN** the user selects an area or a window in the overlay
+- **THEN** the saved image matches the region highlighted in the overlay
+
+#### Scenario: Fullscreen unchanged
+- **WHEN** the user presses the fullscreen hotkey
+- **THEN** only the monitor under the cursor is captured

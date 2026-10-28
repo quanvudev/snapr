@@ -1,9 +1,24 @@
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { mouseCombo, normalize, RING_SLOT } from "@/lib/hotkeys";
+import { useEffect, useRef, useState } from "react";
+import { api, type HotkeyMode } from "@/lib/api";
+import { keyCombo, mouseCombo, normalize, RING_SLOT } from "@/lib/hotkeys";
 
-export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void, hideOnEscape: boolean) {
+export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void, hideOnEscape: boolean, mode: HotkeyMode) {
   const [recording, setRecording] = useState<number | null>(null);
+  const first = useRef(true);
+  const active = useRef(false);
+
+  useEffect(() => {
+    active.current = recording !== null;
+    if (first.current) first.current = false;
+    else api.setListening(recording !== null);
+  }, [recording]);
+
+  useEffect(
+    () => () => {
+      if (active.current) api.setListening(false);
+    },
+    [],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -14,7 +29,7 @@ export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void,
         if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(e.code)) return;
         const key = normalize(e.code);
         setRecording(null);
-        onRecord(recording, key);
+        onRecord(recording, mode === "manual" ? keyCombo(e, key) : key);
       } else if (e.code === "Escape" && hideOnEscape) {
         api.hide();
       }

@@ -148,6 +148,16 @@ pub fn check(app: AppHandle, hotkeys: Hotkeys, text: bool) -> [Row; SLOTS] {
 }
 
 #[tauri::command]
+pub fn set_listening(app: AppHandle, on: bool) {
+    if on {
+        let _ = app.global_shortcut().unregister_all();
+        crate::mouse::bind(None);
+    } else {
+        crate::apply(&app);
+    }
+}
+
+#[tauri::command]
 pub fn save(app: AppHandle, config: Config, autostart: bool) -> Result<(), String> {
     let state = app.state::<State>();
     let text = config.text_capture && state.ocr.load(Ordering::Relaxed);

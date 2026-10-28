@@ -4538,7 +4538,7 @@ dependencies = [
 
 [[package]]
 name = "snapr-v2"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "ab_glyph",
  "arboard",

@@ -571,6 +571,7 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                apply(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -579,6 +580,7 @@ pub fn run() {
             settings::resolve_dir,
             settings::check,
             settings::save,
+            settings::set_listening,
             settings::open_folder,
             settings::open_config_file,
             settings::open_settings,

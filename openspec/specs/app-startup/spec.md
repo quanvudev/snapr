@@ -30,11 +30,11 @@ On first run the app SHALL show a frameless splash window of about 480x300, cent
 - **AND** the window then grows to the settings size, re-centers and shows the setup page
 
 ### Requirement: Setup page collects first-day settings
-The setup page SHALL show a welcome header, the output folder (with browse and the resolved path), copy to clipboard, start with Windows, language, the hotkey modifiers and the five action hotkeys (fullscreen, window, area, text and record) with inline validation, and a single Start button.
+The setup page SHALL show a welcome header, the output folder (with browse and the resolved path), copy to clipboard, start with Windows, language, the hotkey modifiers and the six action hotkeys (fullscreen, window, area, text, record and draw) with inline validation, and a single Start button.
 
 #### Scenario: Start with defaults
 - **WHEN** the user presses Start without changing anything
-- **THEN** the default config is written to `config.toml` with hotkeys fullscreen `1`, window `2`, area `3`, text `4` and record `5`, hotkeys are applied and the window hides to the tray
+- **THEN** the default config is written to `config.toml` with hotkeys fullscreen `1`, window `2`, area `3`, text `4`, record `5` and draw `6`, hotkeys are applied and the window hides to the tray
 
 #### Scenario: Start with invalid hotkey
 - **WHEN** a hotkey has an `invalid`, `needs_modifier` or `duplicate` error
@@ -68,3 +68,14 @@ When `config.toml` has no text hotkey, the app SHALL leave the text hotkey empty
 #### Scenario: Bind the text hotkey
 - **WHEN** the user records a valid key for the empty text hotkey in settings
 - **THEN** the config is saved and the text hotkey works immediately
+
+### Requirement: Older configs leave the draw hotkey unbound
+When `config.toml` has no draw hotkey, the app SHALL leave the draw hotkey empty, keep every other setting from the file, and SHALL NOT report an error for the empty draw hotkey. The draw hotkey stays unbound until the user records one.
+
+#### Scenario: Config from before draw capture
+- **WHEN** the app launches with a `config.toml` that has area `7` and no draw hotkey
+- **THEN** the area hotkey stays `7`, the draw hotkey is empty and not registered, and no duplicate or invalid error is shown
+
+#### Scenario: Bind the draw hotkey
+- **WHEN** the user records a valid key for the empty draw hotkey in settings
+- **THEN** the config is saved and the draw hotkey works immediately

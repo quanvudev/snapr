@@ -2,9 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri_plugin_global_shortcut::Shortcut;
 
+#[derive(Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HotkeyMode {
+    #[default]
+    Fixed,
+    Manual,
+}
+
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Hotkeys {
+    pub mode: HotkeyMode,
     pub modifiers: String,
     pub fullscreen: String,
     pub window: String,
@@ -16,6 +25,7 @@ pub struct Hotkeys {
     pub draw: String,
     #[serde(default)]
     pub ring: String,
+    pub manual: [String; SLOTS],
 }
 
 pub const SLOTS: usize = 7;
@@ -64,6 +74,7 @@ pub struct Config {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
+            mode: HotkeyMode::Fixed,
             modifiers: "Win+Shift".into(),
             fullscreen: "1".into(),
             window: "2".into(),
@@ -72,19 +83,25 @@ impl Default for Hotkeys {
             record: "5".into(),
             draw: "6".into(),
             ring: String::new(),
+            manual: Default::default(),
         }
     }
 }
 
 impl Hotkeys {
     pub fn combos(&self) -> [String; SLOTS] {
-        [&self.fullscreen, &self.window, &self.area, &self.text, &self.record, &self.draw, &self.ring].map(|key| {
-            if key.is_empty() || key.contains('+') || is_mouse(key) || self.modifiers.is_empty() {
-                key.clone()
-            } else {
-                format!("{}+{key}", self.modifiers)
+        match self.mode {
+            HotkeyMode::Fixed => {
+                [&self.fullscreen, &self.window, &self.area, &self.text, &self.record, &self.draw, &self.ring].map(|key| {
+                    if key.is_empty() || key.contains('+') || is_mouse(key) || self.modifiers.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{}+{key}", self.modifiers)
+                    }
+                })
             }
-        })
+            HotkeyMode::Manual => self.manual.clone(),
+        }
     }
 }
 

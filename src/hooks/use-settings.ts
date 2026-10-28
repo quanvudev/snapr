@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Config, type Row } from "@/lib/api";
-import { SLOTS } from "@/lib/hotkeys";
+import { defaultCombos, SLOTS } from "@/lib/hotkeys";
 import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 
@@ -21,8 +21,14 @@ export function useSettings() {
   const timer = useRef<number>(0);
 
   const { recording, setRecording } = useHotkeyRecorder((slot, key) => {
-    if (cfg) update({ ...cfg, hotkeys: { ...cfg.hotkeys, [SLOTS[slot]]: key } });
-  }, view !== "splash");
+    if (!cfg) return;
+    const { hotkeys } = cfg;
+    const next =
+      hotkeys.mode === "fixed"
+        ? { ...hotkeys, [SLOTS[slot]]: key }
+        : { ...hotkeys, manual: hotkeys.manual.map((c, i) => (i === slot ? key : c)) };
+    update({ ...cfg, hotkeys: next });
+  }, view !== "splash", cfg?.hotkeys.mode ?? "fixed");
 
   const load = useCallback(
     async (fromEvent: boolean, openSection?: string) => {
@@ -124,10 +130,15 @@ export function useSettings() {
     t: T[cfg.language],
     update,
     start,
-    reset: async () => {
-      const d = await api.defaults();
+    restoreHotkeys: async () => {
+      const { hotkeys: d } = await api.defaults();
       setRecording(null);
-      update({ ...d, language: cfg.language });
+      const { hotkeys } = cfg;
+      const next =
+        hotkeys.mode === "fixed"
+          ? { ...hotkeys, modifiers: d.modifiers, ...Object.fromEntries(SLOTS.map((s) => [s, d[s]])) }
+          : { ...hotkeys, manual: defaultCombos(d) };
+      update({ ...cfg, hotkeys: next });
     },
   };
 }

@@ -68,11 +68,51 @@ The settings window SHALL show a left sidebar listing the groups Gallery, Genera
 
 #### Scenario: Hotkeys group
 - **WHEN** Hotkeys is selected
-- **THEN** the pane shows the modifier toggles, the five action hotkeys (fullscreen, window, area, text and record) with their resolved combo and status, and a reset-to-defaults action
+- **THEN** the pane shows the Fixed / Manual mode switch with a one-line description of the selected mode, the hotkey rows in two headed groups, Capture (fullscreen, window, area, text, record, draw) and Tools (ring), and a Restore defaults action
+
+#### Scenario: Combo shown as key chips
+- **WHEN** a hotkey row has a combo
+- **THEN** the row shows one key chip per key, for example Ctrl, Shift and 3, and does not repeat the combo as text or show a success mark
+
+#### Scenario: Empty hotkey row
+- **WHEN** a hotkey row has no combo
+- **THEN** the row shows a muted "Not set"
+
+#### Scenario: Problem badge
+- **WHEN** a hotkey has an invalid, needs-modifier, duplicate or in-use problem
+- **THEN** a badge naming the problem is shown under the row title, and a healthy row shows no status
+
+#### Scenario: Clear an optional hotkey
+- **WHEN** the user presses the clear button on the text, draw or ring row
+- **THEN** that hotkey is unbound and the row shows "Not set"
+
+#### Scenario: Required rows have no clear button
+- **WHEN** Hotkeys is selected
+- **THEN** the fullscreen, window, area and record rows show no clear button and can only be re-recorded
+
+#### Scenario: Recording state
+- **WHEN** the user clicks a row's key chips to record
+- **THEN** that row is highlighted and reads "Press keys… Esc to cancel", the other rows are dimmed, and Escape or recording a combo returns every row to normal
+
+#### Scenario: Fixed mode rows
+- **WHEN** Hotkeys is selected and the mode is Fixed
+- **THEN** the pane also shows the modifier toggles, and each row's chips record a key for that slot
+
+#### Scenario: Manual mode rows
+- **WHEN** Hotkeys is selected and the mode is Manual
+- **THEN** the modifier toggles are hidden and each row's chips record a full combo for that slot
+
+#### Scenario: Restore defaults for the active mode
+- **WHEN** the user presses Restore defaults in Fixed mode
+- **THEN** the modifier prefix and keys return to their defaults, the Manual combos and every other setting are unchanged, and the mode stays Fixed
+
+#### Scenario: Restore defaults in Manual
+- **WHEN** the user presses Restore defaults in Manual mode
+- **THEN** the Manual combos return to the default combos, the Fixed prefix and keys and every other setting are unchanged, and the mode stays Manual
 
 #### Scenario: Inactive text hotkey row
 - **WHEN** Hotkeys is selected and text capture is off or unavailable
-- **THEN** the text hotkey row is disabled and shows no error
+- **THEN** the text hotkey row is disabled and shows no problem badge
 
 #### Scenario: About group
 - **WHEN** About is selected
