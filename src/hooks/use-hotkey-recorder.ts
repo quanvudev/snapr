@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { normalize } from "@/lib/hotkeys";
+import { mouseCombo, normalize, RING_SLOT } from "@/lib/hotkeys";
 
 export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void, hideOnEscape: boolean) {
   const [recording, setRecording] = useState<number | null>(null);
@@ -19,8 +19,21 @@ export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void,
         api.hide();
       }
     };
+    const onMouse = (e: MouseEvent) => {
+      if (recording !== RING_SLOT || !mouseCombo(e)) return;
+      e.preventDefault();
+      if (e.type !== "mousedown") return;
+      const combo = mouseCombo(e)!;
+      setRecording(null);
+      onRecord(recording, combo);
+    };
+    const mouseEvents = ["mousedown", "mouseup", "auxclick"] as const;
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    mouseEvents.forEach((n) => window.addEventListener(n, onMouse));
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      mouseEvents.forEach((n) => window.removeEventListener(n, onMouse));
+    };
   });
 
   return { recording, setRecording };

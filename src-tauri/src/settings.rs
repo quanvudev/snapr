@@ -1,5 +1,5 @@
 use crate::State;
-use crate::config::{Config, Hotkeys, parse_hotkey};
+use crate::config::{Config, Hotkeys, RING_SLOT, SLOTS, is_mouse, parse_hotkey, skipped};
 use serde::Serialize;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
@@ -83,13 +83,16 @@ fn in_use(app: &AppHandle, combo: &str) -> bool {
     })
 }
 
-fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool) -> [Row; 5] {
+fn exempt(i: usize, combos: &[String; SLOTS], text: bool) -> bool {
+    skipped(i, combos, text) || (i == RING_SLOT && is_mouse(&combos[i]))
+}
+
+fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool) -> [Row; SLOTS] {
     let combos = hotkeys.combos();
-    let skip = !text || combos[3].is_empty();
-    let mut errors = [None; 5];
-    let mut ids = [None; 5];
-    for i in 0..5 {
-        if i == 3 && skip {
+    let mut errors = [None; SLOTS];
+    let mut ids = [None; SLOTS];
+    for i in 0..SLOTS {
+        if exempt(i, &combos, text) {
             continue;
         }
         match parse_hotkey(&combos[i]) {
@@ -98,15 +101,16 @@ fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool) -> [Row; 5] {
             Ok(key) => ids[i] = Some(key.id()),
         }
     }
-    for i in 0..5 {
-        if ids[i].is_some() && (0..5).any(|j| j != i && ids[j] == ids[i]) {
+    for i in 0..SLOTS {
+        if ids[i].is_some() && (0..SLOTS).any(|j| j != i && ids[j] == ids[i]) {
             errors[i] = Some("duplicate");
         }
     }
+    let skips: [bool; SLOTS] = std::array::from_fn(|i| exempt(i, &combos, text));
     let mut i = 0;
     combos.map(|combo| {
         let error = errors[i];
-        let in_use = error.is_none() && !(i == 3 && skip) && in_use(app, &combo);
+        let in_use = error.is_none() && !skips[i] && in_use(app, &combo);
         i += 1;
         Row { combo, error, in_use }
     })
@@ -139,7 +143,7 @@ pub fn resolve_dir(output_dir: String) -> String {
 }
 
 #[tauri::command]
-pub fn check(app: AppHandle, hotkeys: Hotkeys, text: bool) -> [Row; 5] {
+pub fn check(app: AppHandle, hotkeys: Hotkeys, text: bool) -> [Row; SLOTS] {
     rows(&app, &hotkeys, text)
 }
 

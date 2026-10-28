@@ -1,16 +1,21 @@
 mod capture;
 mod config;
+mod draw;
 mod gallery;
+mod mouse;
 mod ocr;
 mod overlay;
 mod recorder;
+mod ring;
 mod settings;
 mod toast;
+mod toolbar;
 
 use config::Config;
 use image::RgbaImage;
 use overlay::{Outcome, Overlay, Pick, Shot};
 use recorder::{Recorder, Target};
+use ring::{Ring, Wedge};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,6 +42,8 @@ enum Action {
     Text,
     Saved(RgbaImage, PathBuf),
     Record,
+    Draw,
+    Ring,
     Recorded(RgbaImage, PathBuf),
     RecordFailed(String),
 }
@@ -151,10 +158,17 @@ fn apply(app: &AppHandle) {
         Action::Pick(Pick::Area),
         Action::Text,
         Action::Record,
+        Action::Draw,
+        Action::Ring,
     ];
+    mouse::bind(None);
     let mut failed = Vec::new();
-    for (i, (text, action)) in combos.into_iter().zip(actions).enumerate() {
-        if i == 3 && (!active || text.is_empty()) {
+    for (i, (text, action)) in combos.iter().cloned().zip(actions).enumerate() {
+        if config::skipped(i, &combos, active) {
+            continue;
+        }
+        if i == config::RING_SLOT && config::is_mouse(&text) {
+            mouse::bind(mouse::Binding::parse(&text));
             continue;
         }
         let ok = config::parse_hotkey(&text).is_ok_and(|key| {
@@ -179,12 +193,40 @@ fn apply(app: &AppHandle) {
     refresh(app);
 }
 
+const RING_HIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+
+const WEDGE_ORDER: [Wedge; 8] = [
+    Wedge::Fullscreen,
+    Wedge::Window,
+    Wedge::Area,
+    Wedge::Text,
+    Wedge::Record,
+    Wedge::Draw,
+    Wedge::Gallery,
+    Wedge::Settings,
+];
+
+fn wedge_action(wedge: Wedge) -> Result<Action, &'static str> {
+    match wedge {
+        Wedge::Fullscreen => Ok(Action::Fullscreen),
+        Wedge::Window => Ok(Action::Pick(Pick::Window)),
+        Wedge::Area => Ok(Action::Pick(Pick::Area)),
+        Wedge::Text => Ok(Action::Text),
+        Wedge::Record => Ok(Action::Record),
+        Wedge::Draw => Ok(Action::Draw),
+        Wedge::Gallery => Err("gallery"),
+        Wedge::Settings => Err("settings"),
+    }
+}
+
 struct Snap {
     app: AppHandle,
     overlay: Option<Overlay>,
+    ring: Option<Ring>,
     toast: Option<Toast>,
     jobs: Sender<Job>,
     mode: Mode,
+    style: draw::Style,
 }
 
 fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut capture::BackgroundCache, shot: Shot) {
@@ -252,7 +294,14 @@ impl ApplicationHandler<Action> for Snap {
         if self.toast.as_ref().is_some_and(|t| t.expired()) {
             self.toast = None;
         }
-        let flow = match self.toast.as_ref().and_then(|t| t.deadline()) {
+        if let Some(ring) = self.ring.as_mut() {
+            ring.tick();
+        }
+        let deadline = [self.toast.as_ref().and_then(|t| t.deadline()), self.ring.as_ref().map(|r| r.deadline())]
+            .into_iter()
+            .flatten()
+            .min();
+        let flow = match deadline {
             Some(deadline) => ControlFlow::WaitUntil(deadline),
             None => ControlFlow::Wait,
         };
@@ -260,6 +309,26 @@ impl ApplicationHandler<Action> for Snap {
     }
 
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: winit::event::WindowEvent) {
+        if let Some(ring) = self.ring.as_mut().filter(|r| r.id() == id) {
+            match ring.event(event) {
+                ring::Outcome::Pending => {}
+                ring::Outcome::Cancel => self.ring = None,
+                ring::Outcome::Pick(wedge) => {
+                    self.ring = None;
+                    match wedge_action(wedge) {
+                        Ok(action) => {
+                            let app = self.app.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(RING_HIDE_DELAY);
+                                trigger(&app, &action);
+                            });
+                        }
+                        Err(section) => show_settings(&self.app, section),
+                    }
+                }
+            }
+            return;
+        }
         if let Some(toast) = self.toast.as_mut().filter(|t| t.id() == id) {
             if toast.event(event) {
                 self.toast = None;
@@ -281,7 +350,13 @@ impl ApplicationHandler<Action> for Snap {
             record(&self.app, Target::Monitor(cursor_monitor_handle()));
             return;
         }
-        match overlay.event(event) {
+        let outcome = overlay.event(event);
+        if !matches!(outcome, Outcome::Pending)
+            && let Some(style) = overlay.style()
+        {
+            self.style = style;
+        }
+        match outcome {
             Outcome::Pending => {}
             Outcome::Cancel => {
                 self.overlay = None;
@@ -310,9 +385,11 @@ impl ApplicationHandler<Action> for Snap {
                 }
                 Err(e) => tooltip(&self.app, &format!("Snapr: {e}")),
             },
-            Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot),
-            Action::Text => self.pick(event_loop, Pick::Area, Mode::Text),
-            Action::Record => self.pick(event_loop, Pick::Window, Mode::Record),
+            Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot, false),
+            Action::Text => self.pick(event_loop, Pick::Area, Mode::Text, false),
+            Action::Record => self.pick(event_loop, Pick::Window, Mode::Record, false),
+            Action::Draw => self.pick(event_loop, Pick::Area, Mode::Shot, true),
+            Action::Ring => self.open_ring(event_loop),
             Action::Saved(img, path) => {
                 let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path);
@@ -331,15 +408,34 @@ impl ApplicationHandler<Action> for Snap {
 }
 
 impl Snap {
-    fn pick(&mut self, event_loop: &ActiveEventLoop, pick: Pick, mode: Mode) {
+    fn pick(&mut self, event_loop: &ActiveEventLoop, pick: Pick, mode: Mode, draw: bool) {
         if self.overlay.is_some() {
             return;
         }
         self.toast = None;
-        self.overlay = Overlay::open(event_loop, pick);
+        let vi = self.app.state::<State>().cfg.read().unwrap().language == "vi";
+        self.overlay = Overlay::open(event_loop, pick, draw.then_some(self.style), vi);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
             tooltip(&self.app, "Snapr: capture failed");
+        }
+    }
+
+    fn open_ring(&mut self, event_loop: &ActiveEventLoop) {
+        if self.ring.take().is_some() || self.overlay.is_some() {
+            return;
+        }
+        self.toast = None;
+        let state = self.app.state::<State>();
+        let (text, vi) = {
+            let cfg = state.cfg.read().unwrap();
+            (cfg.text_capture && state.ocr.load(Ordering::Relaxed), cfg.language == "vi")
+        };
+        let recording = state.recording.lock().unwrap().is_some();
+        let wedges = WEDGE_ORDER.into_iter().filter(|&w| text || w != Wedge::Text).collect();
+        self.ring = Ring::open(event_loop, wedges, recording, vi);
+        if self.ring.is_none() {
+            tooltip(&self.app, "Snapr: ring failed");
         }
     }
 
@@ -373,7 +469,7 @@ fn spawn_capture(app: AppHandle) -> EventLoopProxy<Action> {
                 }
             }
         });
-        let _ = event_loop.run_app(&mut Snap { app, overlay: None, toast: None, jobs, mode: Mode::Shot });
+        let _ = event_loop.run_app(&mut Snap { app, overlay: None, ring: None, toast: None, jobs, mode: Mode::Shot, style: draw::Style::default() });
     });
     rx.recv().expect("capture event loop")
 }
@@ -452,6 +548,7 @@ pub fn run() {
             let first_run = !path.exists();
             let cfg = Config::load(&path);
             let proxy = spawn_capture(handle.clone());
+            mouse::start(proxy.clone());
             let stop = MenuItem::with_id(app, "stop", "Stop recording", false, None::<&str>)?;
             app.manage(State {
                 path,

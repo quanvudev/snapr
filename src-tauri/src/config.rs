@@ -12,6 +12,23 @@ pub struct Hotkeys {
     #[serde(default)]
     pub text: String,
     pub record: String,
+    #[serde(default)]
+    pub draw: String,
+    #[serde(default)]
+    pub ring: String,
+}
+
+pub const SLOTS: usize = 7;
+pub const TEXT_SLOT: usize = 3;
+pub const DRAW_SLOT: usize = 5;
+pub const RING_SLOT: usize = 6;
+
+pub fn skipped(i: usize, combos: &[String; SLOTS], text_active: bool) -> bool {
+    match i {
+        TEXT_SLOT => !text_active || combos[i].is_empty(),
+        DRAW_SLOT | RING_SLOT => combos[i].is_empty(),
+        _ => false,
+    }
 }
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
@@ -53,20 +70,26 @@ impl Default for Hotkeys {
             area: "3".into(),
             text: "4".into(),
             record: "5".into(),
+            draw: "6".into(),
+            ring: String::new(),
         }
     }
 }
 
 impl Hotkeys {
-    pub fn combos(&self) -> [String; 5] {
-        [&self.fullscreen, &self.window, &self.area, &self.text, &self.record].map(|key| {
-            if key.is_empty() || key.contains('+') || self.modifiers.is_empty() {
+    pub fn combos(&self) -> [String; SLOTS] {
+        [&self.fullscreen, &self.window, &self.area, &self.text, &self.record, &self.draw, &self.ring].map(|key| {
+            if key.is_empty() || key.contains('+') || is_mouse(key) || self.modifiers.is_empty() {
                 key.clone()
             } else {
                 format!("{}+{key}", self.modifiers)
             }
         })
     }
+}
+
+pub fn is_mouse(text: &str) -> bool {
+    crate::mouse::Binding::parse(text).is_some()
 }
 
 pub fn parse_hotkey(text: &str) -> Result<Shortcut, String> {

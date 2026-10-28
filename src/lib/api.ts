@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-export type Hotkeys = { modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string };
+export type Hotkeys = { modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string };
 export type Theme = "system" | "light" | "dark";
 export type Config = {
   output_dir: string;
