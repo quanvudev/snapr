@@ -15,7 +15,7 @@ use config::Config;
 use image::RgbaImage;
 use overlay::{Outcome, Overlay, Pick, Shot};
 use recorder::{Recorder, Target};
-use ring::{Ring, Wedge};
+use ring::{Entry, Ring};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,9 +148,9 @@ fn apply(app: &AppHandle) {
     let state = app.state::<State>();
     let ocr = ocr::available();
     state.ocr.store(ocr, Ordering::Relaxed);
-    let (combos, active) = {
+    let (combos, active, ring_enabled) = {
         let cfg = state.cfg.read().unwrap();
-        (cfg.hotkeys.combos(), cfg.text_capture && ocr)
+        (cfg.hotkeys.combos(), cfg.text_capture && ocr, cfg.ring.enabled)
     };
     let actions = [
         Action::Fullscreen,
@@ -164,7 +164,7 @@ fn apply(app: &AppHandle) {
     mouse::bind(None);
     let mut failed = Vec::new();
     for (i, (text, action)) in combos.iter().cloned().zip(actions).enumerate() {
-        if config::skipped(i, &combos, active) {
+        if config::skipped(i, &combos, active, ring_enabled) {
             continue;
         }
         if i == config::RING_SLOT && config::is_mouse(&text) {
@@ -191,32 +191,6 @@ fn apply(app: &AppHandle) {
     };
     *state.status.lock().unwrap() = status;
     refresh(app);
-}
-
-const RING_HIDE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
-
-const WEDGE_ORDER: [Wedge; 8] = [
-    Wedge::Fullscreen,
-    Wedge::Window,
-    Wedge::Area,
-    Wedge::Text,
-    Wedge::Record,
-    Wedge::Draw,
-    Wedge::Gallery,
-    Wedge::Settings,
-];
-
-fn wedge_action(wedge: Wedge) -> Result<Action, &'static str> {
-    match wedge {
-        Wedge::Fullscreen => Ok(Action::Fullscreen),
-        Wedge::Window => Ok(Action::Pick(Pick::Window)),
-        Wedge::Area => Ok(Action::Pick(Pick::Area)),
-        Wedge::Text => Ok(Action::Text),
-        Wedge::Record => Ok(Action::Record),
-        Wedge::Draw => Ok(Action::Draw),
-        Wedge::Gallery => Err("gallery"),
-        Wedge::Settings => Err("settings"),
-    }
 }
 
 struct Snap {
@@ -297,6 +271,9 @@ impl ApplicationHandler<Action> for Snap {
         if let Some(ring) = self.ring.as_mut() {
             ring.tick();
         }
+        if let Some(entry) = self.ring.take_if(|ring| ring.finished()).and_then(Ring::into_picked) {
+            entry.run(&self.app);
+        }
         let deadline = [self.toast.as_ref().and_then(|t| t.deadline()), self.ring.as_ref().map(|r| r.deadline())]
             .into_iter()
             .flatten()
@@ -312,20 +289,8 @@ impl ApplicationHandler<Action> for Snap {
         if let Some(ring) = self.ring.as_mut().filter(|r| r.id() == id) {
             match ring.event(event) {
                 ring::Outcome::Pending => {}
-                ring::Outcome::Cancel => self.ring = None,
-                ring::Outcome::Pick(wedge) => {
-                    self.ring = None;
-                    match wedge_action(wedge) {
-                        Ok(action) => {
-                            let app = self.app.clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(RING_HIDE_DELAY);
-                                trigger(&app, &action);
-                            });
-                        }
-                        Err(section) => show_settings(&self.app, section),
-                    }
-                }
+                ring::Outcome::Cancel => ring.begin_close(None),
+                ring::Outcome::Pick(entry) => ring.begin_close(Some(entry)),
             }
             return;
         }
@@ -422,18 +387,28 @@ impl Snap {
     }
 
     fn open_ring(&mut self, event_loop: &ActiveEventLoop) {
-        if self.ring.take().is_some() || self.overlay.is_some() {
+        if let Some(ring) = self.ring.as_mut() {
+            ring.begin_close(None);
+            return;
+        }
+        if self.overlay.is_some() {
             return;
         }
         self.toast = None;
         let state = self.app.state::<State>();
-        let (text, vi) = {
+        let (text, vi, items, enabled, keys) = {
             let cfg = state.cfg.read().unwrap();
-            (cfg.text_capture && state.ocr.load(Ordering::Relaxed), cfg.language == "vi")
+            (cfg.text_capture && state.ocr.load(Ordering::Relaxed), cfg.language == "vi", cfg.ring_items(), cfg.ring.enabled, cfg.ring.keys)
         };
+        if !enabled {
+            return;
+        }
         let recording = state.recording.lock().unwrap().is_some();
-        let wedges = WEDGE_ORDER.into_iter().filter(|&w| text || w != Wedge::Text).collect();
-        self.ring = Ring::open(event_loop, wedges, recording, vi);
+        let entries: Vec<Entry> = items.iter().map(Entry::from).filter(|entry| entry.available(text)).collect();
+        if entries.is_empty() {
+            return;
+        }
+        self.ring = Ring::open(event_loop, entries, recording, vi, keys);
         if self.ring.is_none() {
             tooltip(&self.app, "Snapr: ring failed");
         }
@@ -585,6 +560,8 @@ pub fn run() {
             settings::open_config_file,
             settings::open_settings,
             settings::open_language_settings,
+            settings::ring_icon,
+            settings::list_apps,
             gallery::gallery_list,
             gallery::gallery_open,
             gallery::gallery_reveal,

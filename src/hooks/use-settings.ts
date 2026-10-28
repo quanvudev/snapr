@@ -5,7 +5,7 @@ import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 
 export type View = "splash" | "setup" | "settings";
-export type SectionId = "gallery" | "settings";
+export type SectionId = "gallery" | "settings" | "ring";
 
 export function useSettings() {
   const [cfg, setCfg] = useState<Config | null>(null);

@@ -19,8 +19,10 @@ import icon from "../../../src-tauri/icons/128x128.png";
 import { SECTIONS } from "./sections";
 
 export function Settings() {
-  const { t, failed, version, section, setSection } = useSettingsContext();
-  const { component: Active, wide } = SECTIONS.find((s) => s.id === section)!;
+  const { cfg, t, failed, version, section, setSection } = useSettingsContext();
+  const sections = SECTIONS.filter((s) => s.id !== "ring" || cfg.ring.enabled);
+  const current = sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "settings")!;
+  const { component: Active, wide } = current;
 
   return (
     <SidebarProvider className="h-screen min-h-0 text-sm has-data-[variant=inset]:bg-transparent">
@@ -35,9 +37,9 @@ export function Settings() {
         <SidebarContent>
           <SidebarGroup>
             <SidebarMenu>
-              {SECTIONS.map(({ id, icon: Icon }) => (
+              {sections.map(({ id, icon: Icon }) => (
                 <SidebarMenuItem key={id}>
-                  <SidebarMenuButton isActive={section === id} tooltip={t[id]} onClick={() => setSection(id)}>
+                  <SidebarMenuButton isActive={current.id === id} tooltip={t[id]} onClick={() => setSection(id)}>
                     <Icon />
                     <span>{t[id]}</span>
                   </SidebarMenuButton>
@@ -49,7 +51,7 @@ export function Settings() {
       </Sidebar>
 
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
-        <TitleBar title={t[section]} label={t.close} className="gap-1 border-b pl-4">
+        <TitleBar title={t[current.id]} label={t.close} className="gap-1 border-b pl-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mx-2 data-vertical:h-4 data-vertical:self-center" />
         </TitleBar>

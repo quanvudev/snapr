@@ -1,10 +1,17 @@
 use crate::State;
 use crate::config::{Config, Hotkeys, RING_SLOT, SLOTS, is_mouse, parse_hotkey, skipped};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx};
+use windows::Win32::UI::Shell::{
+    BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem, KF_FLAG_DEFAULT, SHGetKnownFolderItem, SIGDN,
+    SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
+};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW,
     RegQueryValueExW, RegSetValueExW,
@@ -12,6 +19,8 @@ use windows_sys::Win32::System::Registry::{
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_VALUE: &str = "snapr";
+const RING_ICON_SIZE: i32 = 32;
+const APPS_FOLDER_PREFIX: &str = "shell:AppsFolder\\";
 
 #[derive(Serialize)]
 pub struct Loaded {
@@ -29,7 +38,7 @@ pub struct Row {
     in_use: bool,
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
@@ -83,16 +92,16 @@ fn in_use(app: &AppHandle, combo: &str) -> bool {
     })
 }
 
-fn exempt(i: usize, combos: &[String; SLOTS], text: bool) -> bool {
-    skipped(i, combos, text) || (i == RING_SLOT && is_mouse(&combos[i]))
+fn exempt(i: usize, combos: &[String; SLOTS], text: bool, ring: bool) -> bool {
+    skipped(i, combos, text, ring) || (i == RING_SLOT && is_mouse(&combos[i]))
 }
 
-fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool) -> [Row; SLOTS] {
+fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool, ring: bool) -> [Row; SLOTS] {
     let combos = hotkeys.combos();
     let mut errors = [None; SLOTS];
     let mut ids = [None; SLOTS];
     for i in 0..SLOTS {
-        if exempt(i, &combos, text) {
+        if exempt(i, &combos, text, ring) {
             continue;
         }
         match parse_hotkey(&combos[i]) {
@@ -106,7 +115,7 @@ fn rows(app: &AppHandle, hotkeys: &Hotkeys, text: bool) -> [Row; SLOTS] {
             errors[i] = Some("duplicate");
         }
     }
-    let skips: [bool; SLOTS] = std::array::from_fn(|i| exempt(i, &combos, text));
+    let skips: [bool; SLOTS] = std::array::from_fn(|i| exempt(i, &combos, text, ring));
     let mut i = 0;
     combos.map(|combo| {
         let error = errors[i];
@@ -144,7 +153,8 @@ pub fn resolve_dir(output_dir: String) -> String {
 
 #[tauri::command]
 pub fn check(app: AppHandle, hotkeys: Hotkeys, text: bool) -> [Row; SLOTS] {
-    rows(&app, &hotkeys, text)
+    let ring = app.state::<State>().cfg.read().unwrap().ring.enabled;
+    rows(&app, &hotkeys, text, ring)
 }
 
 #[tauri::command]
@@ -158,10 +168,11 @@ pub fn set_listening(app: AppHandle, on: bool) {
 }
 
 #[tauri::command]
-pub fn save(app: AppHandle, config: Config, autostart: bool) -> Result<(), String> {
+pub fn save(app: AppHandle, mut config: Config, autostart: bool) -> Result<(), String> {
+    config.ring.sanitise();
     let state = app.state::<State>();
     let text = config.text_capture && state.ocr.load(Ordering::Relaxed);
-    if rows(&app, &config.hotkeys, text).iter().any(|r| r.error.is_some()) {
+    if rows(&app, &config.hotkeys, text, config.ring.enabled).iter().any(|r| r.error.is_some()) {
         return Err("invalid hotkeys".into());
     }
     config.save(&state.path).map_err(|e| e.to_string())?;
@@ -173,6 +184,68 @@ pub fn save(app: AppHandle, config: Config, autostart: bool) -> Result<(), Strin
     state.probe.lock().unwrap().clear();
     crate::apply(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub fn ring_icon(path: String) -> Result<tauri::ipc::Response, String> {
+    let path = std::path::PathBuf::from(path);
+    let is_exe = path.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
+    let is_store_app = path.to_str().is_some_and(|text| {
+        text.get(..APPS_FOLDER_PREFIX.len()).is_some_and(|head| head.eq_ignore_ascii_case(APPS_FOLDER_PREFIX))
+    });
+    if !is_exe && !is_store_app {
+        return Err("not an executable".into());
+    }
+    crate::gallery::icon_png(&path, RING_ICON_SIZE).map(tauri::ipc::Response::new).ok_or_else(|| "no icon".to_string())
+}
+
+#[derive(Serialize)]
+pub struct InstalledApp {
+    name: String,
+    path: String,
+}
+
+fn display_name(item: &IShellItem, kind: SIGDN) -> Option<String> {
+    let raw = unsafe { item.GetDisplayName(kind) }.ok()?;
+    let text = unsafe { raw.to_string() }.ok();
+    unsafe { CoTaskMemFree(Some(raw.0 as _)) };
+    text
+}
+
+fn enumerate_apps() -> windows::core::Result<Vec<InstalledApp>> {
+    let folder: IShellItem = unsafe { SHGetKnownFolderItem(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT, None::<HANDLE>) }?;
+    let items: IEnumShellItems = unsafe { folder.BindToHandler(None::<&IBindCtx>, &BHID_EnumItems) }?;
+    let mut seen = HashSet::new();
+    let mut apps = Vec::new();
+    let mut batch = [None];
+    let mut fetched = 0;
+    while unsafe { items.Next(&mut batch, Some(&mut fetched)) }.is_ok() && fetched == 1 {
+        let Some(item) = batch[0].take() else { break };
+        let name = display_name(&item, SIGDN_NORMALDISPLAY).filter(|name| !name.is_empty());
+        let id = display_name(&item, SIGDN_PARENTRELATIVEPARSING).filter(|id| !id.is_empty());
+        if let (Some(name), Some(id)) = (name, id) {
+            let path = format!("{APPS_FOLDER_PREFIX}{id}");
+            if seen.insert(path.clone()) {
+                apps.push(InstalledApp { name, path });
+            }
+        }
+    }
+    apps.sort_by_key(|app| app.name.to_lowercase());
+    Ok(apps)
+}
+
+fn installed_apps() -> Result<Vec<InstalledApp>, String> {
+    let init = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    let apps = enumerate_apps().map_err(|e| e.to_string());
+    if init.is_ok() {
+        unsafe { CoUninitialize() };
+    }
+    apps
+}
+
+#[tauri::command]
+pub async fn list_apps() -> Result<Vec<InstalledApp>, String> {
+    tauri::async_runtime::spawn_blocking(installed_apps).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

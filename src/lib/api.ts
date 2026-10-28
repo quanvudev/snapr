@@ -7,6 +7,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 export type HotkeyMode = "fixed" | "manual";
 export type Hotkeys = { mode: HotkeyMode; modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string; manual: string[] };
 export type Theme = "system" | "light" | "dark";
+export type BuiltinId = "fullscreen" | "window" | "area" | "text" | "record" | "draw" | "gallery" | "settings";
+export type RingItem =
+  | { kind: "builtin"; id: BuiltinId; key?: string | null }
+  | { kind: "app"; label: string; path: string; args: string; admin: boolean; key?: string | null };
 export type Config = {
   output_dir: string;
   copy_to_clipboard: boolean;
@@ -17,9 +21,11 @@ export type Config = {
   language: "vi" | "en";
   theme: Theme;
   hotkeys: Hotkeys;
+  ring: { enabled: boolean; keys: boolean; items?: RingItem[] | null };
 };
 export type Row = { combo: string; error: "invalid" | "needs_modifier" | "duplicate" | null; in_use: boolean };
 export type Loaded = { config: Config; autostart: boolean; dir: string; first_run: boolean; ocr_available: boolean };
+export type InstalledApp = { name: string; path: string };
 export type GalleryItem = { path: string; date_ms: number; kind: "photo" | "video" | "other" };
 
 export const api = {
@@ -40,6 +46,8 @@ export const api = {
   galleryReveal: (path: string) => invoke("gallery_reveal", { path }),
   galleryCopy: (path: string) => invoke("gallery_copy", { path }),
   galleryDelete: (path: string) => invoke("gallery_delete", { path }),
+  listApps: () => invoke<InstalledApp[]>("list_apps"),
+  ringIcon: (path: string) => invoke<ArrayBuffer>("ring_icon", { path }),
   thumbSrc: (path: string) => convertFileSrc(path, "thumb"),
   mediaSrc: (path: string) => convertFileSrc(path, "media"),
   onSettingsOpen: (cb: (section: string) => void) => listen<string>("settings-open", (e) => cb(e.payload)),

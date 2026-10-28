@@ -13,6 +13,7 @@ use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{CursorIcon, Window, WindowId, WindowLevel};
 
 const BORDER: u32 = 0x3090f0;
+const SELECTION_BORDER: i32 = 2;
 
 #[derive(Clone, Copy)]
 pub enum Pick {
@@ -419,8 +420,9 @@ impl Overlay {
             buf[y * sw..y * sw + w].copy_from_slice(&self.dim[y * fw..y * fw + w]);
         }
         if let Some(a) = self.annotation.as_mut() {
-            let (x, y, _, _) = a.sketch.selection();
-            blit(&mut buf, sw, (w as u32, h), a.sketch.view(), (x, y));
+            let selection = a.sketch.selection();
+            outline(&mut buf, sw, (w as u32, h), selection);
+            blit(&mut buf, sw, (w as u32, h), a.sketch.view(), (selection.0, selection.1));
             let origin = a.toolbar.origin();
             let (kind, style) = a.sketch.options();
             let view = a.toolbar.render(a.sketch.tool(), kind, &style, a.hover, draw::text_available());
@@ -455,6 +457,17 @@ impl Overlay {
             }
         }
         buf.present().ok()
+    }
+}
+
+fn outline(buf: &mut [u32], stride: usize, (w, h): (u32, u32), (x, y, rw, rh): Rect) {
+    let t = SELECTION_BORDER;
+    let strips = [(x - t, y - t, rw + 2 * t, t), (x - t, y + rh, rw + 2 * t, t), (x - t, y, t, rh), (x + rw, y, t, rh)];
+    for strip in strips {
+        let Some((x0, y0, x1, y1)) = clamp(strip, w, h) else { continue };
+        for row in y0..y1 {
+            buf[row as usize * stride + x0 as usize..row as usize * stride + x1 as usize].fill(BORDER);
+        }
     }
 }
 

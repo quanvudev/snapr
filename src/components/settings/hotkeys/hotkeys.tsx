@@ -5,6 +5,7 @@ import { GROUPS, SLOTS } from "@/lib/hotkeys";
 import { HotkeyRow } from "./hotkey-row";
 import { ModeRow } from "./mode-row";
 import { ModifiersRow } from "./modifiers-row";
+import { RingSwitchRow } from "./ring-switch-row";
 
 export function HotkeyRows() {
   const { cfg, t } = useSettingsContext();
@@ -16,9 +17,12 @@ export function HotkeyRows() {
         <div key={g.title} className="flex flex-col gap-2">
           <h3 className="text-xs font-medium text-muted-foreground">{t[g.title]}</h3>
           <ItemGroup className="gap-3">
-            {g.slots.map((s) => (
-              <HotkeyRow key={s} i={SLOTS.indexOf(s)} />
-            ))}
+            {g.title === "groupTools" && <RingSwitchRow />}
+            {g.slots
+              .filter((s) => s !== "ring" || cfg.ring.enabled)
+              .map((s) => (
+                <HotkeyRow key={s} i={SLOTS.indexOf(s)} />
+              ))}
           </ItemGroup>
         </div>
       ))}

@@ -207,18 +207,39 @@ unsafe fn rgba(bitmap: HBITMAP) -> Option<RgbaImage> {
     }
 }
 
-fn shell_image(factory: &IShellItemImageFactory, flags: SIIGBF) -> Option<Vec<u8>> {
-    let size = SIZE { cx: THUMB_SIZE, cy: THUMB_SIZE };
+fn shell_rgba(factory: &IShellItemImageFactory, flags: SIIGBF, side: i32) -> Option<RgbaImage> {
+    let size = SIZE { cx: side, cy: side };
     let bitmap = unsafe { factory.GetImage(size, flags | SIIGBF_BIGGERSIZEOK) }.ok()?;
     let img = unsafe { rgba(bitmap.0) };
     unsafe { DeleteObject(bitmap.0) };
+    img
+}
+
+fn png(img: &RgbaImage) -> Option<Vec<u8>> {
     let mut png = Vec::new();
-    img?.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).ok()?;
+    img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).ok()?;
     Some(png)
 }
 
+fn shell_image(factory: &IShellItemImageFactory, flags: SIIGBF) -> Option<Vec<u8>> {
+    png(&shell_rgba(factory, flags, THUMB_SIZE)?)
+}
+
+fn shell_factory(path: &Path) -> Option<IShellItemImageFactory> {
+    unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()
+}
+
+pub fn icon_rgba(path: &Path, side: i32) -> Option<RgbaImage> {
+    let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    shell_rgba(&shell_factory(path)?, SIIGBF_ICONONLY, side)
+}
+
+pub fn icon_png(path: &Path, side: i32) -> Option<Vec<u8>> {
+    png(&icon_rgba(path, side)?)
+}
+
 fn thumbnail(path: &Path) -> Option<Vec<u8>> {
-    let factory: IShellItemImageFactory = unsafe { SHCreateItemFromParsingName(&HSTRING::from(path), None) }.ok()?;
+    let factory = shell_factory(path)?;
     if Kind::of(path) != Kind::Other
         && let Some(png) = shell_image(&factory, SIIGBF_THUMBNAILONLY)
     {
