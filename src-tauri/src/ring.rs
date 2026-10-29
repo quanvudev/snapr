@@ -327,7 +327,7 @@ impl From<&RingItem> for Entry {
     }
 }
 
-fn bitmap(img: &RgbaImage) -> Option<Pixmap> {
+pub(crate) fn bitmap(img: &RgbaImage) -> Option<Pixmap> {
     let mut pixmap = Pixmap::new(img.width(), img.height())?;
     for (dst, px) in pixmap.pixels_mut().iter_mut().zip(img.pixels()) {
         let [r, g, b, a] = px.0;
@@ -710,7 +710,7 @@ fn place(cursor: i32, side: i32, low: i32, high: i32) -> i32 {
     (cursor - side / 2).min(high - side).max(low)
 }
 
-fn present(hwnd: isize, pixmap: &Pixmap) -> Result<(), String> {
+pub(crate) fn present(hwnd: isize, pixmap: &Pixmap) -> Result<(), String> {
     let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
     let mut header: BITMAPINFOHEADER = unsafe { std::mem::zeroed() };
     header.biSize = size_of::<BITMAPINFOHEADER>() as u32;

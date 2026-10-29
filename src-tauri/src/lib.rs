@@ -5,6 +5,7 @@ mod gallery;
 mod mouse;
 mod ocr;
 mod overlay;
+mod pin;
 mod recorder;
 mod ring;
 mod settings;
@@ -44,6 +45,8 @@ enum Action {
     Record,
     Draw,
     Ring,
+    Pin(PathBuf),
+    PinMany(Vec<PathBuf>),
     Recorded(RgbaImage, PathBuf),
     RecordFailed(String),
 }
@@ -107,7 +110,7 @@ fn trigger(app: &AppHandle, action: &Action) {
     let _ = app.state::<State>().proxy.lock().unwrap().send_event(action.clone());
 }
 
-fn record(app: &AppHandle, target: Target) {
+fn record(app: &AppHandle, target: Target) -> bool {
     let state = app.state::<State>();
     let (dir, fps) = {
         let cfg = state.cfg.read().unwrap();
@@ -122,8 +125,12 @@ fn record(app: &AppHandle, target: Target) {
             *state.recording.lock().unwrap() = Some(recorder);
             let _ = state.stop.set_enabled(true);
             refresh(app);
+            true
         }
-        Err(e) => tooltip(app, &format!("Snapr: {e}")),
+        Err(e) => {
+            tooltip(app, &format!("Snapr: {e}"));
+            false
+        }
     }
 }
 
@@ -198,6 +205,7 @@ struct Snap {
     overlay: Option<Overlay>,
     ring: Option<Ring>,
     toast: Option<Toast>,
+    pins: pin::Pins,
     jobs: Sender<Job>,
     mode: Mode,
     style: draw::Style,
@@ -274,10 +282,15 @@ impl ApplicationHandler<Action> for Snap {
         if let Some(entry) = self.ring.take_if(|ring| ring.finished()).and_then(Ring::into_picked) {
             entry.run(&self.app);
         }
-        let deadline = [self.toast.as_ref().and_then(|t| t.deadline()), self.ring.as_ref().map(|r| r.deadline())]
-            .into_iter()
-            .flatten()
-            .min();
+        self.pins.tick();
+        let deadline = [
+            self.toast.as_ref().and_then(|t| t.deadline()),
+            self.ring.as_ref().map(|r| r.deadline()),
+            self.pins.deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let flow = match deadline {
             Some(deadline) => ControlFlow::WaitUntil(deadline),
             None => ControlFlow::Wait,
@@ -285,7 +298,7 @@ impl ApplicationHandler<Action> for Snap {
         event_loop.set_control_flow(flow);
     }
 
-    fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: winit::event::WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: winit::event::WindowEvent) {
         if let Some(ring) = self.ring.as_mut().filter(|r| r.id() == id) {
             match ring.event(event) {
                 ring::Outcome::Pending => {}
@@ -295,8 +308,26 @@ impl ApplicationHandler<Action> for Snap {
             return;
         }
         if let Some(toast) = self.toast.as_mut().filter(|t| t.id() == id) {
-            if toast.event(event) {
-                self.toast = None;
+            match toast.event(event) {
+                toast::Outcome::Pending => {}
+                toast::Outcome::Close => self.toast = None,
+                toast::Outcome::Pin => {
+                    let path = toast.path().to_path_buf();
+                    self.toast = None;
+                    self.open_pin(event_loop, path);
+                }
+            }
+            return;
+        }
+        if self.pins.contains(id) {
+            match self.pins.event(id, event) {
+                pin::Outcome::Pending => {}
+                pin::Outcome::Close => self.pins.remove(id),
+                pin::Outcome::Copy => match self.pins.image(id).map(capture::copy) {
+                    Some(Ok(())) => self.pins.copied(id),
+                    Some(Err(e)) => tooltip(&self.app, &format!("Snapr: {e}")),
+                    None => {}
+                },
             }
             return;
         }
@@ -312,7 +343,11 @@ impl ApplicationHandler<Action> for Snap {
         if self.mode == Mode::Record && click && overlay.hovered().is_none_or(is_desktop) {
             self.overlay = None;
             self.mode = Mode::Shot;
-            record(&self.app, Target::Monitor(cursor_monitor_handle()));
+            self.pins.hide_recording();
+            self.pins.show_capture();
+            if !record(&self.app, Target::Monitor(cursor_monitor_handle())) {
+                self.pins.show_recording();
+            }
             return;
         }
         let outcome = overlay.event(event);
@@ -326,15 +361,24 @@ impl ApplicationHandler<Action> for Snap {
             Outcome::Cancel => {
                 self.overlay = None;
                 self.mode = Mode::Shot;
+                self.pins.show_capture();
             }
             Outcome::Save(shot) => {
                 self.overlay = None;
                 match (std::mem::replace(&mut self.mode, Mode::Shot), shot) {
-                    (Mode::Record, Shot::Window { hwnd, .. }) => record(&self.app, Target::Window(hwnd)),
+                    (Mode::Record, Shot::Window { hwnd, .. }) => {
+                        self.pins.hide_recording();
+                        self.pins.show_capture();
+                        if !record(&self.app, Target::Window(hwnd)) {
+                            self.pins.show_recording();
+                        }
+                    }
                     (Mode::Text, shot) => {
+                        self.pins.show_capture();
                         let _ = self.jobs.send(Job::Text(shot));
                     }
                     (_, shot) => {
+                        self.pins.show_capture();
                         let _ = self.jobs.send(Job::Save(shot));
                     }
                 }
@@ -344,27 +388,39 @@ impl ApplicationHandler<Action> for Snap {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         match action {
-            Action::Fullscreen => match capture::fullscreen() {
-                Ok(img) => {
-                    let _ = self.jobs.send(Job::Save(Shot::Ready(img)));
+            Action::Fullscreen => {
+                let overlay = self.overlay.is_some();
+                self.pins.hide_capture();
+                let result = capture::fullscreen();
+                if !overlay {
+                    self.pins.show_capture();
                 }
-                Err(e) => tooltip(&self.app, &format!("Snapr: {e}")),
-            },
+                match result {
+                    Ok(img) => {
+                        let _ = self.jobs.send(Job::Save(Shot::Ready(img)));
+                    }
+                    Err(e) => tooltip(&self.app, &format!("Snapr: {e}")),
+                }
+            }
             Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot, false),
             Action::Text => self.pick(event_loop, Pick::Area, Mode::Text, false),
             Action::Record => self.pick(event_loop, Pick::Window, Mode::Record, false),
             Action::Draw => self.pick(event_loop, Pick::Area, Mode::Shot, true),
             Action::Ring => self.open_ring(event_loop),
+            Action::Pin(path) => self.open_pin(event_loop, path),
+            Action::PinMany(paths) => self.open_pins(event_loop, paths),
             Action::Saved(img, path) => {
                 let _ = self.app.emit_to("main", "gallery-changed", ());
-                self.preview(event_loop, &img, path);
+                self.preview(event_loop, &img, path, true);
             }
             Action::Recorded(img, path) => {
+                self.pins.show_recording();
                 ended(&self.app);
                 let _ = self.app.emit_to("main", "gallery-changed", ());
-                self.preview(event_loop, &img, path);
+                self.preview(event_loop, &img, path, false);
             }
             Action::RecordFailed(e) => {
+                self.pins.show_recording();
                 ended(&self.app);
                 tooltip(&self.app, &format!("Snapr: {e}"));
             }
@@ -378,10 +434,12 @@ impl Snap {
             return;
         }
         self.toast = None;
+        self.pins.hide_capture();
         let vi = self.app.state::<State>().cfg.read().unwrap().language == "vi";
         self.overlay = Overlay::open(event_loop, pick, draw.then_some(self.style), vi);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
+            self.pins.show_capture();
             tooltip(&self.app, "Snapr: capture failed");
         }
     }
@@ -414,11 +472,40 @@ impl Snap {
         }
     }
 
-    fn preview(&mut self, event_loop: &ActiveEventLoop, img: &RgbaImage, path: PathBuf) {
+    fn preview(&mut self, event_loop: &ActiveEventLoop, img: &RgbaImage, path: PathBuf, pinnable: bool) {
         self.toast = None;
         let secs = self.app.state::<State>().cfg.read().unwrap().preview_seconds;
         if secs > 0 && self.overlay.is_none() {
-            self.toast = Toast::open(event_loop, img, path, secs);
+            self.toast = Toast::open(event_loop, img, path, secs, pinnable);
+        }
+    }
+
+    fn open_pin(&mut self, event_loop: &ActiveEventLoop, path: PathBuf) {
+        let image = match image::open(&path) {
+            Ok(image) => image.to_rgba8(),
+            Err(e) => {
+                tooltip(&self.app, &format!("Snapr: {e}"));
+                return;
+            }
+        };
+        if let Err(e) = self.pins.add(event_loop, image) {
+            tooltip(&self.app, &format!("Snapr: {e}"));
+        }
+    }
+
+    fn open_pins(&mut self, event_loop: &ActiveEventLoop, paths: Vec<PathBuf>) {
+        for (index, path) in paths.into_iter().enumerate() {
+            let image = match image::open(&path) {
+                Ok(image) => image.to_rgba8(),
+                Err(e) => {
+                    tooltip(&self.app, &format!("Snapr: {e}"));
+                    continue;
+                }
+            };
+            let offset = ((index as i32) * 24, (index as i32) * 24);
+            if let Err(e) = self.pins.add_at(event_loop, image, offset) {
+                tooltip(&self.app, &format!("Snapr: {e}"));
+            }
         }
     }
 }
@@ -444,7 +531,16 @@ fn spawn_capture(app: AppHandle) -> EventLoopProxy<Action> {
                 }
             }
         });
-        let _ = event_loop.run_app(&mut Snap { app, overlay: None, ring: None, toast: None, jobs, mode: Mode::Shot, style: draw::Style::default() });
+        let _ = event_loop.run_app(&mut Snap {
+            app,
+            overlay: None,
+            ring: None,
+            toast: None,
+            pins: pin::Pins::default(),
+            jobs,
+            mode: Mode::Shot,
+            style: draw::Style::default(),
+        });
     });
     rx.recv().expect("capture event loop")
 }
@@ -566,7 +662,11 @@ pub fn run() {
             gallery::gallery_open,
             gallery::gallery_reveal,
             gallery::gallery_copy,
-            gallery::gallery_delete
+            gallery::gallery_copy_files,
+            gallery::gallery_pin,
+            gallery::gallery_pin_many,
+            gallery::gallery_delete,
+            gallery::gallery_delete_many
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

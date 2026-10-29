@@ -19,9 +19,13 @@ use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
 use windows::core::HSTRING;
+use windows_sys::Win32::Foundation::{GlobalFree, POINT};
 use windows_sys::Win32::Graphics::Gdi::{BITMAP, DeleteObject, GetDC, GetObjectW, HBITMAP, ReleaseDC};
+use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows_sys::Win32::System::Ole::CF_HDROP;
 use windows_sys::Win32::UI::Shell::{
-    FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW, SHFileOperationW,
+    DROPFILES, FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW, SHFileOperationW,
 };
 
 const THUMB_SIZE: i32 = 256;
@@ -65,6 +69,12 @@ pub struct Item {
     path: String,
     date_ms: u64,
     kind: Kind,
+}
+
+#[derive(Serialize)]
+pub struct BulkFailure {
+    path: String,
+    error: String,
 }
 
 fn list(dir: &Path) -> Vec<Item> {
@@ -139,8 +149,94 @@ pub fn gallery_copy(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn gallery_delete(app: AppHandle, path: String) -> Result<(), String> {
+pub fn gallery_copy_files(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let mut files = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let file = guarded(&app, path)?;
+        if Kind::of(&file) != Kind::Photo {
+            return Err("not an image".into());
+        }
+        files.push(file);
+    }
+    if files.is_empty() {
+        return Err("no images".into());
+    }
+    clipboard_files(&files)
+}
+
+fn clipboard_files(paths: &[PathBuf]) -> Result<(), String> {
+    let mut data = Vec::new();
+    for path in paths {
+        data.extend(path.as_os_str().encode_wide());
+        data.push(0);
+    }
+    data.push(0);
+    let header = size_of::<DROPFILES>();
+    let bytes = header + data.len() * 2;
+    let drop = DROPFILES { pFiles: header as u32, pt: POINT { x: 0, y: 0 }, fNC: 0, fWide: 1 };
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes);
+        if handle.is_null() {
+            return Err("clipboard allocation failed".into());
+        }
+        let target = GlobalLock(handle);
+        if target.is_null() {
+            GlobalFree(handle);
+            return Err("clipboard lock failed".into());
+        }
+        std::ptr::write_unaligned(target.cast::<DROPFILES>(), drop);
+        std::ptr::copy_nonoverlapping(data.as_ptr().cast::<u8>(), target.cast::<u8>().add(header), data.len() * 2);
+        let _ = GlobalUnlock(handle);
+        if OpenClipboard(null_mut()) == 0 {
+            GlobalFree(handle);
+            return Err("clipboard busy".into());
+        }
+        if EmptyClipboard() == 0 || SetClipboardData(CF_HDROP as u32, handle as _).is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            return Err("clipboard write failed".into());
+        }
+        CloseClipboard();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn gallery_pin(app: AppHandle, path: String) -> Result<(), String> {
     let path = guarded(&app, &path)?;
+    if Kind::of(&path) != Kind::Photo {
+        return Err("not an image".into());
+    }
+    app.state::<State>()
+        .proxy
+        .lock()
+        .unwrap()
+        .send_event(crate::Action::Pin(path))
+        .map_err(|_| "pin failed".to_string())
+}
+
+#[tauri::command]
+pub fn gallery_pin_many(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let mut files = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let file = guarded(&app, path)?;
+        if Kind::of(&file) != Kind::Photo {
+            return Err("not an image".into());
+        }
+        files.push(file);
+    }
+    if files.is_empty() {
+        return Err("no images".into());
+    }
+    app.state::<State>()
+        .proxy
+        .lock()
+        .unwrap()
+        .send_event(crate::Action::PinMany(files))
+        .map_err(|_| "pin failed".to_string())
+}
+
+fn delete_file(path: &Path) -> Result<(), String> {
     let from: Vec<u16> = path.as_os_str().encode_wide().chain([0, 0]).collect();
     let mut op = SHFILEOPSTRUCTW {
         wFunc: FO_DELETE,
@@ -153,6 +249,27 @@ pub fn gallery_delete(app: AppHandle, path: String) -> Result<(), String> {
         return Err(format!("delete failed ({status})"));
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn gallery_delete(app: AppHandle, path: String) -> Result<(), String> {
+    let path = guarded(&app, &path)?;
+    delete_file(&path)
+}
+
+#[tauri::command]
+pub fn gallery_delete_many(app: AppHandle, paths: Vec<String>) -> Result<Vec<BulkFailure>, String> {
+    let validated = paths
+        .into_iter()
+        .map(|path| guarded(&app, &path).map(|file| (path, file)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut failures = Vec::new();
+    for (path, file) in validated {
+        if let Err(error) = delete_file(&file) {
+            failures.push(BulkFailure { path, error });
+        }
+    }
+    Ok(failures)
 }
 
 fn decode(s: &str) -> Option<String> {

@@ -10,11 +10,28 @@ type Props = {
   label: string;
   collapsed: boolean;
   actions: GalleryActions;
+  selectMode: boolean;
+  selected: Set<string>;
   onToggle: () => void;
   onOpen: (item: Item) => void;
+  onSelect: (item: Item) => void;
+  onRange: (item: Item) => void;
+  onLongPress: (item: Item) => void;
 };
 
-export function GalleryGroup({ group, label, collapsed, actions, onToggle, onOpen }: Props) {
+export function GalleryGroup({
+  group,
+  label,
+  collapsed,
+  actions,
+  selectMode,
+  selected,
+  onToggle,
+  onOpen,
+  onSelect,
+  onRange,
+  onLongPress,
+}: Props) {
   return (
     <Collapsible open={!collapsed} onOpenChange={onToggle} className="space-y-2">
       <CollapsibleTrigger className="group flex w-full items-center gap-1 text-left font-medium">
@@ -24,7 +41,17 @@ export function GalleryGroup({ group, label, collapsed, actions, onToggle, onOpe
       </CollapsibleTrigger>
       <CollapsibleContent className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
         {group.items.map((item) => (
-          <GalleryItem key={item.path} item={item} actions={actions} onOpen={() => onOpen(item)} />
+          <GalleryItem
+            key={item.path}
+            item={item}
+            actions={actions}
+            selectMode={selectMode}
+            selected={selected.has(item.path)}
+            onOpen={() => onOpen(item)}
+            onSelect={() => onSelect(item)}
+            onRange={() => onRange(item)}
+            onLongPress={() => onLongPress(item)}
+          />
         ))}
       </CollapsibleContent>
     </Collapsible>

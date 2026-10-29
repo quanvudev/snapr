@@ -9,7 +9,12 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
     <>
       <ContextMenuItem onClick={() => actions.open(item)}>{t.openDefault}</ContextMenuItem>
       <ContextMenuItem onClick={() => actions.reveal(item)}>{t.showInExplorer}</ContextMenuItem>
-      {item.kind === "photo" && <ContextMenuItem onClick={() => actions.copy(item)}>{t.copyImage}</ContextMenuItem>}
+      {item.kind === "photo" && (
+        <>
+          <ContextMenuItem onClick={() => actions.pin(item)}>{t.pinImage}</ContextMenuItem>
+          <ContextMenuItem onClick={() => actions.copy(item)}>{t.copyImage}</ContextMenuItem>
+        </>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onClick={() => actions.remove(item)}>
         {t.deleteItem}
