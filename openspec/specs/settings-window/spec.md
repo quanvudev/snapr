@@ -52,11 +52,39 @@ The settings window SHALL show a left sidebar listing the groups Gallery, Genera
 
 #### Scenario: Capture group
 - **WHEN** Capture is selected
-- **THEN** the pane shows a padding on/off switch, the padding size in px (1 to 512), a rounded corners on/off switch with a radius in px (1 to 128), the background image path with a browse action (PNG or JPEG) and a clear action, and a text capture on/off switch; with no image the padding is transparent
+- **THEN** the pane shows a padding on/off switch, the padding size in px (1 to 512), a rounded corners on/off switch with a radius in px (1 to 128), the background image path with a browse action (PNG or JPEG) and a clear action, a text capture on/off switch and the OCR engine choice (Windows or PaddleOCR v6); with no image the padding is transparent
 
 #### Scenario: Text capture unavailable
-- **WHEN** Capture is selected and Windows has no OCR language installed
+- **WHEN** Capture is selected, Windows has no OCR language installed and no PaddleOCR model is ready for the selected engine
 - **THEN** the text capture switch is disabled, a "No OCR language installed" hint is shown, and an action opens the Windows language settings
+
+#### Scenario: Text capture available through PaddleOCR
+- **WHEN** Capture is selected, Windows has no OCR language installed and the engine is PaddleOCR with a ready model
+- **THEN** the text capture switch is enabled and no "No OCR language installed" hint is shown
+
+#### Scenario: PaddleOCR options
+- **WHEN** Capture is selected and the engine is PaddleOCR
+- **THEN** the pane also shows a Tiny / Small / Medium size choice set to the current size, a one-line description and download size of the selected size, a note that PaddleOCR does not read Vietnamese, and the list of sizes each marked in use, downloaded or not downloaded, with a Delete action on each downloaded size
+
+#### Scenario: PaddleOCR options hidden
+- **WHEN** Capture is selected and the engine is Windows
+- **THEN** no size choice, model list or download status is shown
+
+#### Scenario: Download progress
+- **WHEN** a model size is downloading
+- **THEN** the pane shows the size being downloaded, a progress bar with the percentage and a Cancel action
+
+#### Scenario: Download failed
+- **WHEN** a model download fails
+- **THEN** the pane shows the error and a Retry action
+
+#### Scenario: Selected size missing
+- **WHEN** the engine is PaddleOCR, the selected size is not downloaded and no download is running
+- **THEN** the pane shows that the size is not downloaded and a Download action
+
+#### Scenario: Confirm deletion
+- **WHEN** the user presses Delete on a downloaded size
+- **THEN** a confirmation dialog names the size and its disk size, and the files are removed only after confirming
 
 #### Scenario: Preview group
 - **WHEN** Preview is selected

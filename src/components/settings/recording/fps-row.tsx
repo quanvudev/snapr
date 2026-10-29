@@ -1,11 +1,15 @@
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
 
 const FPS = [30, 60];
 
 export function FpsRow() {
   const { cfg, t, update } = useSettingsContext();
+  const change = (value: string[]) => {
+    if (value[0]) update({ ...cfg, record_fps: Number(value[0]) });
+  };
+
   return (
     <Item variant="muted">
       <ItemContent>
@@ -13,21 +17,17 @@ export function FpsRow() {
         <ItemDescription>{t.fpsHint}</ItemDescription>
       </ItemContent>
       <ItemActions>
-        <Select
-          value={String(cfg.record_fps === 60 ? 60 : 30)}
-          onValueChange={(v) => update({ ...cfg, record_fps: Number(v) })}
-        >
-          <SelectTrigger>
-            <SelectValue>{(v: string) => `${v} fps`}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {FPS.map((f) => (
-              <SelectItem key={f} value={String(f)}>
-                {f} fps
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ToggleGroup variant="outline" size="sm" value={[String(cfg.record_fps === 60 ? 60 : 30)]} onValueChange={change}>
+          {FPS.map((f) => (
+            <ToggleGroupItem
+              key={f}
+              value={String(f)}
+              className="text-muted-foreground aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            >
+              {f} fps
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </ItemActions>
     </Item>
   );

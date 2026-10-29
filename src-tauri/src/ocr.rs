@@ -1,15 +1,37 @@
+mod paddle;
+
+use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
+
 use image::imageops::{FilterType, grayscale, resize};
 use image::{GrayImage, RgbaImage};
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Security::Cryptography::CryptographicBuffer;
 
+use crate::config::PaddleSize;
+
 type Row = (f32, f32, Vec<(f32, String)>);
 
 const QR_MAX: u32 = 2000;
 
-pub fn available() -> bool {
+static ENGINE: Mutex<Option<(PaddleSize, paddle::Engine)>> = Mutex::new(None);
+
+pub struct PaddleModel {
+    pub size: PaddleSize,
+    pub det: PathBuf,
+    pub rec: PathBuf,
+    pub dict: PathBuf,
+    pub runtime: PathBuf,
+    pub params: (f32, f32, f32),
+}
+
+pub fn windows_available() -> bool {
     OcrEngine::TryCreateFromUserProfileLanguages().is_ok()
+}
+
+pub fn available(paddle: Option<&PaddleModel>) -> bool {
+    paddle.is_some() || windows_available()
 }
 
 pub fn qr(img: &RgbaImage) -> Vec<String> {
@@ -37,8 +59,32 @@ pub fn qr(img: &RgbaImage) -> Vec<String> {
     codes.into_iter().map(|(_, text)| text).collect()
 }
 
-pub fn extract(img: &RgbaImage) -> Result<String, String> {
-    recognize(img).map_err(|e| e.message())
+pub fn extract(img: &RgbaImage, paddle: Option<&PaddleModel>) -> Result<String, String> {
+    match paddle.map(|model| paddle_extract(img, model)) {
+        Some(Ok(text)) => Ok(text),
+        Some(Err(e)) => recognize(img).map_err(|_| e),
+        None => recognize(img).map_err(|e| e.message()),
+    }
+}
+
+pub fn paddle_extract(img: &RgbaImage, model: &PaddleModel) -> Result<String, String> {
+    let mut cache = ENGINE.lock().unwrap_or_else(PoisonError::into_inner);
+    let engine = match &mut *cache {
+        Some((size, engine)) if *size == model.size => engine,
+        slot => {
+            *slot = None;
+            let engine = paddle::Engine::load(&model.det, &model.rec, &model.dict, &model.runtime)?;
+            &mut slot.insert((model.size, engine)).1
+        }
+    };
+    engine.extract(img, model.params).map(rows)
+}
+
+pub fn paddle_unload(size: Option<PaddleSize>) {
+    let mut cache = ENGINE.lock().unwrap_or_else(PoisonError::into_inner);
+    if size.is_none() || cache.as_ref().map(|(cached, _)| *cached) == size {
+        *cache = None;
+    }
 }
 
 fn recognize(img: &RgbaImage) -> windows::core::Result<String> {
@@ -74,6 +120,10 @@ fn recognize(img: &RgbaImage) -> windows::core::Result<String> {
         }
         lines.push((x, top, bottom, line.Text()?.to_string()));
     }
+    Ok(rows(lines))
+}
+
+pub fn rows(mut lines: Vec<(f32, f32, f32, String)>) -> String {
     lines.sort_by(|a, b| a.1.total_cmp(&b.1));
     let mut rows: Vec<Row> = Vec::new();
     for (x, top, bottom, text) in lines {
@@ -94,5 +144,5 @@ fn recognize(img: &RgbaImage) -> windows::core::Result<String> {
             items.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join(" ")
         })
         .collect();
-    Ok(rows.join("\n"))
+    rows.join("\n")
 }

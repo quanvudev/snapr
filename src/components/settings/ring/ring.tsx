@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { BuiltinId, RingItem } from "@/lib/api";
@@ -11,6 +12,8 @@ import { RingAvailable } from "./ring-available";
 import { RingInspector } from "./ring-inspector";
 import { RingWheel } from "./ring-wheel";
 import { useRingDrag } from "./use-ring-drag";
+
+const IDLE = [0, 3, 5, 10, 30];
 
 export function Ring() {
   const { cfg, t, update } = useSettingsContext();
@@ -33,6 +36,7 @@ export function Ring() {
   };
   const drag = useRingDrag(items, save, setPicked, picker.pick);
   const hasSelection = selected !== null;
+  const idleLabel = (s: number) => (s ? `${s} ${t.secondsUnit}` : t.never);
 
   useEffect(() => {
     if (!hasSelection || recordingKey) return;
@@ -52,6 +56,27 @@ export function Ring() {
           {items.length} / {MAX_RING_ITEMS} {t.ringEntries}
         </Badge>
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="text-right leading-tight">
+              <Label>{t.ringIdle}</Label>
+              <p className="text-xs text-muted-foreground">{t.ringIdleHint}</p>
+            </div>
+            <Select
+              value={String(cfg.ring.idle_close)}
+              onValueChange={(v) => update({ ...cfg, ring: { ...cfg.ring, idle_close: Number(v) } })}
+            >
+              <SelectTrigger>
+                <SelectValue>{(v: string) => idleLabel(Number(v))}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {IDLE.map((s) => (
+                  <SelectItem key={s} value={String(s)}>
+                    {idleLabel(s)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex items-center gap-3">
             <div className="text-right leading-tight">
               <Label htmlFor="ring-keys">{t.ringKeys}</Label>

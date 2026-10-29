@@ -3,6 +3,7 @@ import { api, type Config, type Row } from "@/lib/api";
 import { defaultCombos, SLOTS } from "@/lib/hotkeys";
 import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
+import { usePaddle } from "./use-paddle";
 
 export type View = "splash" | "setup" | "settings";
 export type SectionId = "gallery" | "settings" | "ring";
@@ -13,6 +14,7 @@ export function useSettings() {
   const [dir, setDir] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [ocr, setOcr] = useState(false);
+  const [windowsOcr, setWindowsOcr] = useState(false);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<View>("settings");
   const [section, setSection] = useState<SectionId>("settings");
@@ -37,6 +39,7 @@ export function useSettings() {
       setAutostart(s.autostart);
       setDir(s.dir);
       setOcr(s.ocr_available);
+      setWindowsOcr(s.windows_ocr);
       setRecording(null);
       setFailed(false);
       if (fromEvent) {
@@ -67,6 +70,13 @@ export function useSettings() {
     };
   }, [load]);
 
+  const reloadOcr = useCallback(async () => {
+    const s = await api.load();
+    setOcr(s.ocr_available);
+    setWindowsOcr(s.windows_ocr);
+  }, []);
+  const paddle = usePaddle(reloadOcr);
+
   const outputDir = cfg?.output_dir;
   useEffect(() => {
     if (outputDir !== undefined) api.resolveDir(outputDir).then(setDir);
@@ -87,6 +97,10 @@ export function useSettings() {
     if (checked.some((r) => r.error)) return;
     try {
       await api.save(next, nextAutostart);
+      const switched = cfg?.ocr_engine !== next.ocr_engine || cfg?.paddle_model !== next.paddle_model;
+      if (switched && next.ocr_engine === "paddle" && !paddle.status.ready.includes(next.paddle_model) && paddle.progress?.size !== next.paddle_model) {
+        paddle.download(next.paddle_model);
+      }
     } catch {
       setFailed(true);
     }
@@ -118,6 +132,8 @@ export function useSettings() {
     autostart,
     dir,
     ocr,
+    windowsOcr,
+    paddle,
     textActive,
     rows,
     failed,

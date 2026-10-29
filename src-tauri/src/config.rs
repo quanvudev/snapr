@@ -55,13 +55,14 @@ fn lenient_items<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Ve
 pub struct Ring {
     pub enabled: bool,
     pub keys: bool,
+    pub idle_close: u32,
     #[serde(deserialize_with = "lenient_items", skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<RingItem>>,
 }
 
 impl Default for Ring {
     fn default() -> Self {
-        Self { enabled: true, keys: true, items: None }
+        Self { enabled: true, keys: true, idle_close: 5, items: None }
     }
 }
 
@@ -122,6 +123,23 @@ pub fn skipped(i: usize, combos: &[String; SLOTS], text_active: bool, ring_enabl
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OcrEngine {
+    #[default]
+    Windows,
+    Paddle,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaddleSize {
+    Tiny,
+    #[default]
+    Small,
+    Medium,
+}
+
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Padding {
@@ -151,6 +169,10 @@ pub struct Config {
     #[serde(default)]
     pub record_countdown: bool,
     pub text_capture: bool,
+    #[serde(default)]
+    pub ocr_engine: OcrEngine,
+    #[serde(default)]
+    pub paddle_model: PaddleSize,
     pub padding: Padding,
     pub hotkeys: Hotkeys,
     pub ring: Ring,
@@ -213,6 +235,8 @@ impl Default for Config {
             record_fps: 30,
             record_countdown: false,
             text_capture: true,
+            ocr_engine: OcrEngine::Windows,
+            paddle_model: PaddleSize::Small,
             padding: Padding::default(),
             hotkeys: Hotkeys::default(),
             ring: Ring::default(),

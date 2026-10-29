@@ -11,6 +11,8 @@ export type BuiltinId = "fullscreen" | "window" | "area" | "text" | "record" | "
 export type RingItem =
   | { kind: "builtin"; id: BuiltinId; key?: string | null }
   | { kind: "app"; label: string; path: string; args: string; admin: boolean; key?: string | null };
+export type OcrEngine = "windows" | "paddle";
+export type PaddleSize = "tiny" | "small" | "medium";
 export type Config = {
   output_dir: string;
   copy_to_clipboard: boolean;
@@ -18,14 +20,19 @@ export type Config = {
   record_fps: number;
   record_countdown: boolean;
   text_capture: boolean;
+  ocr_engine: OcrEngine;
+  paddle_model: PaddleSize;
   padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number; wallpaper: boolean };
   language: "vi" | "en";
   theme: Theme;
   hotkeys: Hotkeys;
-  ring: { enabled: boolean; keys: boolean; items?: RingItem[] | null };
+  ring: { enabled: boolean; keys: boolean; idle_close: number; items?: RingItem[] | null };
 };
 export type Row = { combo: string; error: "invalid" | "needs_modifier" | "duplicate" | null; in_use: boolean };
-export type Loaded = { config: Config; autostart: boolean; dir: string; first_run: boolean; ocr_available: boolean };
+export type Loaded = { config: Config; autostart: boolean; dir: string; first_run: boolean; ocr_available: boolean; windows_ocr: boolean };
+export type PaddleProgress = { size: PaddleSize; done: number; total: number };
+export type PaddleStatus = { ready: PaddleSize[]; bytes: Record<PaddleSize, number>; downloading: PaddleProgress | null; runtime: boolean };
+export type PaddleDone = { size: PaddleSize; error: string | null };
 export type InstalledApp = { name: string; path: string };
 export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other" };
 export type BulkFailure = { path: string; error: string };
@@ -55,6 +62,12 @@ export const api = {
   galleryPinMany: (paths: string[]) => invoke("gallery_pin_many", { paths }),
   galleryDelete: (path: string) => invoke("gallery_delete", { path }),
   galleryDeleteMany: (paths: string[]) => invoke<BulkFailure[]>("gallery_delete_many", { paths }),
+  paddleStatus: () => invoke<PaddleStatus>("paddle_status"),
+  paddleDownload: (size: PaddleSize) => invoke("paddle_download", { size }),
+  paddleCancel: () => invoke("paddle_cancel"),
+  paddleDelete: (size: PaddleSize) => invoke("paddle_delete", { size }),
+  onPaddleProgress: (cb: (p: PaddleProgress) => void) => listen<PaddleProgress>("paddle-progress", (e) => cb(e.payload)),
+  onPaddleDone: (cb: (d: PaddleDone) => void) => listen<PaddleDone>("paddle-done", (e) => cb(e.payload)),
   listApps: () => invoke<InstalledApp[]>("list_apps"),
   ringIcon: (path: string) => invoke<ArrayBuffer>("ring_icon", { path }),
   thumbSrc: (path: string) => convertFileSrc(path, "thumb"),

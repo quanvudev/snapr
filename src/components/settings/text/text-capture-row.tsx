@@ -5,15 +5,15 @@ import { useSettingsContext } from "@/components/settings-provider";
 import { api } from "@/lib/api";
 
 export function TextCaptureRow() {
-  const { cfg, t, ocr, update } = useSettingsContext();
+  const { cfg, t, ocr, windowsOcr, update } = useSettingsContext();
   return (
     <Item variant="muted">
       <ItemContent>
         <ItemTitle>{t.textCapture}</ItemTitle>
-        {!ocr && <ItemDescription>{t.noOcr}</ItemDescription>}
+        {!ocr && !windowsOcr && <ItemDescription>{t.noOcr}</ItemDescription>}
       </ItemContent>
       <ItemActions className="gap-3">
-        {!ocr && (
+        {!ocr && !windowsOcr && (
           <Button size="sm" variant="outline" onClick={api.openLanguageSettings}>
             {t.openLanguageSettings}
           </Button>

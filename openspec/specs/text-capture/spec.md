@@ -26,11 +26,15 @@ Pressing the text hotkey SHALL open the area picker. Selecting an area SHALL clo
 - **THEN** the text is still copied to the clipboard
 
 ### Requirement: Recognition uses the Windows profile languages
-Text SHALL be recognized with the OCR engine built into Windows, using the user's Windows profile languages, offline.
+Text SHALL be recognized offline with the engine selected by the `ocr-engine` capability. With the Windows engine, or while PaddleOCR is selected but not ready, text SHALL be recognized with the OCR engine built into Windows, using the user's Windows profile languages. With PaddleOCR ready, the languages SHALL be those of the PaddleOCR model, independent of the Windows profile.
 
 #### Scenario: Vietnamese profile
-- **WHEN** the Windows profile language is Vietnamese with its OCR language installed and the area contains Vietnamese text
+- **WHEN** the engine is Windows, the Windows profile language is Vietnamese with its OCR language installed and the area contains Vietnamese text
 - **THEN** the recognized text keeps its Vietnamese diacritics
+
+#### Scenario: Japanese without a Windows language pack
+- **WHEN** the engine is PaddleOCR with the Small model ready, no Japanese OCR language is installed in Windows and the area contains Japanese text
+- **THEN** the Japanese text is recognized
 
 ### Requirement: Text capture reports its result with a notification
 After recognition, a Windows notification SHALL report the result in the app language: the number of copied lines on success, "No text found" when nothing was recognized, or the error when recognition fails. When nothing is recognized or recognition fails, the clipboard SHALL NOT change.
@@ -48,14 +52,18 @@ After recognition, a Windows notification SHALL report the result in the app lan
 - **THEN** the notification is in Vietnamese
 
 ### Requirement: Text capture is available only with an OCR language
-Text capture SHALL be available only when Windows can create an OCR engine for the user's profile languages. Availability SHALL be checked at startup and each time the settings window opens.
+Text capture SHALL be available only when Windows can create an OCR engine for the user's profile languages, or the engine is PaddleOCR and the selected model size is ready. Availability SHALL be checked at startup, each time the settings window opens, when the engine or model size changes, and when a model download finishes or a model is deleted.
 
 #### Scenario: No OCR language
-- **WHEN** no OCR language is installed in Windows
+- **WHEN** no OCR language is installed in Windows and no PaddleOCR model is ready for the selected engine
 - **THEN** the text hotkey is not registered and pressing it does nothing
 
 #### Scenario: Language installed while running
 - **WHEN** the user installs an OCR language while snapr runs and then opens the settings window
+- **THEN** text capture becomes available and the text hotkey works without restarting snapr
+
+#### Scenario: PaddleOCR model becomes ready
+- **WHEN** no OCR language is installed in Windows, the engine is PaddleOCR and the selected model finishes downloading
 - **THEN** text capture becomes available and the text hotkey works without restarting snapr
 
 ### Requirement: Text capture can be turned off
@@ -100,7 +108,7 @@ Every text recognition SHALL first look for QR codes in the image. When one or m
 - **THEN** no browser or app is opened
 
 ### Requirement: Text can be extracted from an existing image
-Text SHALL also be extractable from a pin or a gallery photo, recognizing the whole full-resolution image. From a pin, the QR-then-OCR, clipboard and notification rules of the text hotkey SHALL apply. From the gallery, the result SHALL be shown in the viewer's text pane as described by the `gallery` capability. No file SHALL be created or changed. The action SHALL be offered only while Windows can create an OCR engine, regardless of the text capture switch.
+Text SHALL also be extractable from a pin or a gallery photo, recognizing the whole full-resolution image with the selected engine. From a pin, the QR-then-OCR, clipboard and notification rules of the text hotkey SHALL apply. From the gallery, the result SHALL be shown in the viewer's text pane as described by the `gallery` capability. No file SHALL be created or changed. The action SHALL be offered only while text capture is available, regardless of the text capture switch.
 
 #### Scenario: Same result as the hotkey
 - **WHEN** the user copies text from a pin of a screenshot containing two lines of text
@@ -115,8 +123,12 @@ Text SHALL also be extractable from a pin or a gallery photo, recognizing the wh
 - **THEN** Copy text is still offered on pins and Extract text on gallery photos
 
 #### Scenario: No OCR language
-- **WHEN** no OCR language is installed
+- **WHEN** no OCR language is installed and no PaddleOCR model is ready for the selected engine
 - **THEN** neither Copy text on pins nor Extract text on gallery photos is offered
+
+#### Scenario: PaddleOCR without a Windows language
+- **WHEN** no OCR language is installed in Windows and the engine is PaddleOCR with a ready model
+- **THEN** Extract text on a gallery photo shows the text recognized by PaddleOCR
 
 #### Scenario: Source file unchanged
 - **WHEN** the user extracts text from a gallery photo

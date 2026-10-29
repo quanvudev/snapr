@@ -3,6 +3,7 @@ import { useSettingsContext } from "@/components/settings-provider";
 import { ClipboardRow } from "./clipboard-row";
 import { FolderRow } from "./folder-row";
 import { LanguageRow } from "./language-row";
+import { PreviewRow } from "./preview-row";
 import { StartupRow } from "./startup-row";
 import { ThemeRow } from "./theme-row";
 
@@ -16,6 +17,7 @@ export function General() {
       <ItemGroup className="gap-3">
         <FolderRow withOpen />
         <ClipboardRow />
+        <PreviewRow />
       </ItemGroup>
       {heading(t.system)}
       <ItemGroup className="gap-3">

@@ -29,6 +29,7 @@ pub struct Loaded {
     dir: String,
     first_run: bool,
     ocr_available: bool,
+    windows_ocr: bool,
 }
 
 #[derive(Serialize)]
@@ -133,7 +134,7 @@ fn dir_of(output_dir: String) -> String {
 pub fn load(state: tauri::State<State>) -> Loaded {
     let config = state.cfg.read().unwrap().clone();
     let dir = config.dir().display().to_string();
-    Loaded { config, autostart: autostart_get(), dir, first_run: !state.path.exists(), ocr_available: state.ocr.load(Ordering::Relaxed) }
+    Loaded { config, autostart: autostart_get(), dir, first_run: !state.path.exists(), ocr_available: state.ocr.load(Ordering::Relaxed), windows_ocr: crate::ocr::windows_available() }
 }
 
 #[tauri::command]

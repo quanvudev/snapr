@@ -229,11 +229,12 @@ pub async fn gallery_text(app: AppHandle, path: String) -> Result<Recognized, St
     if Kind::of(&path) != Kind::Photo {
         return Err("not an image".into());
     }
+    let paddle = crate::paddle::selected(&app, &app.state::<State>().cfg.read().unwrap());
     tauri::async_runtime::spawn_blocking(move || {
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
         let img = image::open(&path).map_err(|e| e.to_string())?.to_rgba8();
         let qr = crate::ocr::qr(&img);
-        let text = match crate::ocr::extract(&img) {
+        let text = match crate::ocr::extract(&img, paddle.as_ref()) {
             Ok(text) => text.trim().to_string(),
             Err(_) if !qr.is_empty() => String::new(),
             Err(e) => return Err(e),

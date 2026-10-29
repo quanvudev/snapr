@@ -6,6 +6,7 @@ mod gallery;
 mod mouse;
 mod ocr;
 mod overlay;
+mod paddle;
 mod pin;
 mod recorder;
 mod ring;
@@ -87,6 +88,7 @@ pub struct State {
     ocr: AtomicBool,
     proxy: Mutex<EventLoopProxy<Action>>,
     recording: Mutex<Option<Recorder>>,
+    download: Mutex<Option<paddle::Download>>,
     stop: MenuItem<tauri::Wry>,
 }
 
@@ -185,14 +187,20 @@ fn region_target(rect: Rect, start: (i32, i32), hwnd: Option<isize>) -> Option<(
     Some((area, (x0, y0, w, h), Some((x0, y0, w, h))))
 }
 
+fn ocr_available(app: &AppHandle) -> bool {
+    let paddle = paddle::selected(app, &app.state::<State>().cfg.read().unwrap());
+    ocr::available(paddle.as_ref())
+}
+
 fn apply(app: &AppHandle) {
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
     let state = app.state::<State>();
-    let ocr = ocr::available();
+    let ocr = ocr_available(app);
     state.ocr.store(ocr, Ordering::Relaxed);
     let (combos, active, ring_enabled) = {
         let cfg = state.cfg.read().unwrap();
+        paddle::unload_others(&cfg);
         (cfg.hotkeys.combos(), cfg.text_capture && ocr, cfg.ring.enabled)
     };
     let actions = [
@@ -294,8 +302,12 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
 
 fn read_text(app: &AppHandle, shot: Shot) {
     let Shot::Ready(img) = shot else { return };
-    let vi = app.state::<State>().cfg.read().unwrap().language == "vi";
-    let failed = |e: String| if vi { format!("Lỗi nhận dạng chữ: {e}") } else { format!("Text capture failed: {e}") };
+    let state = app.state::<State>();
+    let (vi, paddle) = {
+        let cfg = state.cfg.read().unwrap();
+        (cfg.language == "vi", paddle::selected(app, &cfg))
+    };
+    let failed = |e: String| if vi { format!("Lỗi quét chữ: {e}") } else { format!("Text capture failed: {e}") };
     let codes = ocr::qr(&img);
     let msg = if !codes.is_empty() {
         let n = codes.len();
@@ -307,7 +319,7 @@ fn read_text(app: &AppHandle, shot: Shot) {
             Err(e) => failed(e.to_string()),
         }
     } else {
-        match ocr::extract(&img) {
+        match ocr::extract(&img, paddle.as_ref()) {
             Ok(text) if text.trim().is_empty() => if vi { "Không tìm thấy chữ" } else { "No text found" }.to_string(),
             Ok(text) => {
                 let text = text.trim();
@@ -578,9 +590,10 @@ impl Snap {
         }
         self.toast = None;
         let state = self.app.state::<State>();
-        let (text, vi, items, enabled, keys) = {
+        let (text, vi, items, enabled, keys, idle) = {
             let cfg = state.cfg.read().unwrap();
-            (cfg.text_capture && state.ocr.load(Ordering::Relaxed), cfg.language == "vi", cfg.ring_items(), cfg.ring.enabled, cfg.ring.keys)
+            let idle = (cfg.ring.idle_close > 0).then(|| Duration::from_secs(cfg.ring.idle_close.into()));
+            (cfg.text_capture && state.ocr.load(Ordering::Relaxed), cfg.language == "vi", cfg.ring_items(), cfg.ring.enabled, cfg.ring.keys, idle)
         };
         if !enabled {
             return;
@@ -590,7 +603,7 @@ impl Snap {
         if entries.is_empty() {
             return;
         }
-        self.ring = Ring::open(event_loop, entries, recording, vi, keys);
+        self.ring = Ring::open(event_loop, entries, recording, vi, keys, idle);
         if self.ring.is_none() {
             tooltip(&self.app, "Snapr: ring failed");
         }
@@ -683,7 +696,7 @@ fn show_splash(app: &AppHandle) {
 }
 
 pub(crate) fn show_settings(app: &AppHandle, section: &str) {
-    if ocr::available() != app.state::<State>().ocr.load(Ordering::Relaxed) {
+    if ocr_available(app) != app.state::<State>().ocr.load(Ordering::Relaxed) {
         apply(app);
     }
     let Some(w) = app.get_webview_window("main") else { return };
@@ -759,6 +772,7 @@ pub fn run() {
                 ocr: AtomicBool::new(false),
                 proxy: Mutex::new(proxy),
                 recording: Mutex::new(None),
+                download: Mutex::new(None),
                 stop,
             });
             build_tray(&handle)?;
@@ -797,7 +811,11 @@ pub fn run() {
             gallery::gallery_pin_many,
             gallery::gallery_text,
             gallery::gallery_delete,
-            gallery::gallery_delete_many
+            gallery::gallery_delete_many,
+            paddle::paddle_status,
+            paddle::paddle_download,
+            paddle::paddle_cancel,
+            paddle::paddle_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

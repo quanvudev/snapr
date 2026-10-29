@@ -203,7 +203,7 @@ const WEDGES: [(Wedge, &str, &str, char); 8] = [
     (Wedge::Fullscreen, "Fullscreen", "Toàn màn hình", '\u{E740}'),
     (Wedge::Window, "Window", "Cửa sổ", '\u{E737}'),
     (Wedge::Area, "Area", "Vùng chọn", '\u{EF20}'),
-    (Wedge::Text, "Text", "Văn bản", '\u{E8E9}'),
+    (Wedge::Text, "Text", "Quét chữ", '\u{E8E9}'),
     (Wedge::Record, "Record", "Quay video", '\u{E7C8}'),
     (Wedge::Draw, "Draw", "Vẽ", '\u{E70F}'),
     (Wedge::Gallery, "Gallery", "Thư viện", '\u{E8B9}'),
@@ -366,6 +366,8 @@ pub struct Ring {
     hover: Option<usize>,
     glow: Vec<f32>,
     opened: Instant,
+    active: Instant,
+    idle: Option<Duration>,
     closing: Option<Closing>,
     frame: Instant,
 }
@@ -377,7 +379,7 @@ struct Closing {
 }
 
 impl Ring {
-    pub fn open(event_loop: &ActiveEventLoop, entries: Vec<Entry>, recording: bool, vi: bool, keys_on: bool) -> Option<Self> {
+    pub fn open(event_loop: &ActiveEventLoop, entries: Vec<Entry>, recording: bool, vi: bool, keys_on: bool, idle: Option<Duration>) -> Option<Self> {
         if entries.is_empty() {
             return None;
         }
@@ -421,6 +423,8 @@ impl Ring {
             hover: None,
             glow,
             opened: now,
+            active: now,
+            idle,
             closing: None,
             frame: now,
         };
@@ -463,6 +467,9 @@ impl Ring {
     pub fn event(&mut self, event: WindowEvent) -> Outcome {
         if self.closing.is_some() && !matches!(event, WindowEvent::RedrawRequested) {
             return Outcome::Pending;
+        }
+        if matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }) {
+            self.active = Instant::now();
         }
         match event {
             WindowEvent::CloseRequested => Outcome::Cancel,
@@ -509,6 +516,11 @@ impl Ring {
         self.frame = now;
         let hover = self.cursor_hit();
         let changed = self.set_hover_state(hover);
+        if self.hover.is_some() {
+            self.active = now;
+        } else if self.idle.is_some_and(|idle| self.active.elapsed() >= idle) {
+            self.begin_close(None);
+        }
         let mut moving = self.closing.is_some() || self.opened.elapsed() < OPEN_DURATION;
         for (i, glow) in self.glow.iter_mut().enumerate() {
             let target = if self.hover == Some(i) { 1.0 } else { 0.0 };
