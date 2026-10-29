@@ -2,6 +2,23 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.8.0] - 2026-10-29
+
+### Added
+- Recording panel: the record hotkey (or the ring's Record) now opens a small floating panel first, with a round webcam preview and a toolbar to choose what to record before you press Start.
+- Recording modes: Full screen (starts at once on the monitor under the cursor), Window (click a window) or Area (drag a rectangle), picked from the panel and remembered.
+- Microphone and system audio: pick a microphone and the system audio source (all system audio, or one output device) in the panel; both are mixed into the video's sound track. The microphone level shows as a glowing ring around the audio button.
+- Webcam: a round webcam bubble appears in the recording and can be dragged anywhere, even while recording. The first camera is selected automatically when one is found.
+- While recording, a compact bar under the webcam shows the timer with Stop, Pause / Resume and Delete (click twice to discard the recording). Pause cuts the paused time out of the video.
+- Tray: a Pause recording / Resume recording item.
+
+### Changed
+- Recordings now keep a true 60 frames per second instead of repeating frames.
+- The recording panel and bar never appear in the video.
+
+### Fixed
+- Area recordings are no longer saved upside down.
+
 ## [1.7.0] - 2026-10-29
 
 ### Added
