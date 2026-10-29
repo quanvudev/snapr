@@ -1,3 +1,5 @@
+mod audio;
+mod panel;
 mod capture;
 mod config;
 mod draw;
@@ -54,6 +56,7 @@ enum Action {
     Recorded(RgbaImage, PathBuf),
     RecordFailed(String),
     CancelCountdown,
+    RecordPick(config::RecordMode),
 }
 
 const COUNTDOWN: u32 = 3;
@@ -91,13 +94,17 @@ pub struct State {
     recording: Mutex<Option<Recorder>>,
     download: Mutex<Option<paddle::Download>>,
     counting: AtomicBool,
+    discard: AtomicBool,
     update: Mutex<update::Updater>,
     menu: Menu<tauri::Wry>,
     stop: MenuItem<tauri::Wry>,
+    pause: MenuItem<tauri::Wry>,
     upgrade: MenuItem<tauri::Wry>,
+    panel: Mutex<panel::Panel>,
+    capture: Mutex<Option<audio::Capture>>,
 }
 
-fn tooltip(app: &AppHandle, text: &str) {
+pub(crate) fn tooltip(app: &AppHandle, text: &str) {
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(text));
     }
@@ -105,8 +112,9 @@ fn tooltip(app: &AppHandle, text: &str) {
 
 fn refresh(app: &AppHandle) {
     let state = app.state::<State>();
-    let text = if state.recording.lock().unwrap().is_some() {
-        "Snapr: recording…".to_string()
+    let paused = state.recording.lock().unwrap().as_ref().map(Recorder::paused);
+    let text = if let Some(paused) = paused {
+        if paused { "Snapr: paused" } else { "Snapr: recording…" }.to_string()
     } else {
         state.status.lock().unwrap().clone()
     };
@@ -117,18 +125,63 @@ fn ended(app: &AppHandle) {
     let state = app.state::<State>();
     let recorder = state.recording.lock().unwrap().take();
     drop(recorder);
+    let capture = state.capture.lock().unwrap().take();
+    drop(capture);
     let _ = state.stop.set_enabled(false);
+    let _ = state.pause.set_enabled(false);
+    let _ = state.pause.set_text("Pause recording");
+    refresh(app);
+    close_panel(app);
+}
+
+fn close_panel(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || panel::close(&handle));
+}
+
+pub(crate) fn pause_recording(app: &AppHandle, pause: bool) {
+    let state = app.state::<State>();
+    let done = state.recording.lock().unwrap().as_ref().map(|r| if pause { r.pause() } else { r.resume() }).is_some();
+    if !done {
+        return;
+    }
+    panel::paused(app, pause);
+    let _ = state.pause.set_text(if pause { "Resume recording" } else { "Pause recording" });
     refresh(app);
 }
 
-fn stop_recording(app: &AppHandle) -> bool {
+#[cfg(debug_assertions)]
+fn stop_after_limit(app: &AppHandle) {
+    let Some(secs) = std::env::var("SNAPR_RECORD_SECS").ok().and_then(|v| v.parse::<u64>().ok()).filter(|&s| s > 0) else {
+        return;
+    };
+    let started = panel::started_ms(app);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        if started.is_some() && panel::started_ms(&app) == started {
+            stop_recording(&app);
+        }
+    });
+}
+
+pub(crate) fn stop_recording(app: &AppHandle) -> bool {
     let recorder = app.state::<State>().recording.lock().unwrap().take();
     recorder.map(Recorder::stop).is_some()
 }
 
-fn trigger(app: &AppHandle, action: &Action) {
-    if matches!(action, Action::Record) && stop_recording(app) {
-        return;
+pub(crate) fn trigger(app: &AppHandle, action: &Action) {
+    if matches!(action, Action::Record) {
+        if stop_recording(app) {
+            return;
+        }
+        if !app.state::<State>().counting.load(Ordering::Relaxed) {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                panel::toggle(&handle);
+            });
+            return;
+        }
     }
     let _ = app.state::<State>().proxy.lock().unwrap().send_event(action.clone());
 }
@@ -140,18 +193,26 @@ fn record(app: &AppHandle, target: Target) -> bool {
         (cfg.dir(), cfg.fps())
     };
     let proxy = state.proxy.lock().unwrap().clone();
+    let mut capture = panel::audio(app);
+    let chunks = capture.as_mut().filter(|c| c.has_audio()).and_then(audio::Capture::chunks);
     let started = std::fs::create_dir_all(&dir)
         .map_err(|e| e.to_string())
-        .and_then(|_| Recorder::start(proxy, target, capture::unique_path(&dir, "mp4"), fps));
+        .and_then(|_| Recorder::start(proxy, target, capture::unique_path(&dir, "mp4"), fps, chunks));
     match started {
         Ok(recorder) => {
             *state.recording.lock().unwrap() = Some(recorder);
+            *state.capture.lock().unwrap() = capture;
             let _ = state.stop.set_enabled(true);
+            let _ = state.pause.set_enabled(true);
+            panel::started(app);
             refresh(app);
+            #[cfg(debug_assertions)]
+            stop_after_limit(app);
             true
         }
         Err(e) => {
             tooltip(app, &format!("Snapr: {e}"));
+            close_panel(app);
             false
         }
     }
@@ -411,26 +472,6 @@ impl ApplicationHandler<Action> for Snap {
             return;
         }
         let Some(overlay) = self.overlay.as_mut().filter(|o| o.id() == id) else { return };
-        let release = matches!(
-            event,
-            winit::event::WindowEvent::MouseInput {
-                state: winit::event::ElementState::Released,
-                button: winit::event::MouseButton::Left,
-                ..
-            }
-        );
-        if self.mode == Mode::Record && release && overlay.clicked() && overlay.hovered().is_none_or(is_desktop) {
-            self.overlay = None;
-            self.mode = Mode::Shot;
-            match cursor_monitor() {
-                Some((target, bounds)) => self.begin(event_loop, target, bounds, None),
-                None => {
-                    self.pins.show_capture();
-                    tooltip(&self.app, "Snapr: capture failed");
-                }
-            }
-            return;
-        }
         let outcome = overlay.event(event);
         if !matches!(outcome, Outcome::Pending)
             && let Some(style) = overlay.style()
@@ -441,7 +482,9 @@ impl ApplicationHandler<Action> for Snap {
             Outcome::Pending => {}
             Outcome::Cancel => {
                 self.overlay = None;
-                self.mode = Mode::Shot;
+                if std::mem::replace(&mut self.mode, Mode::Shot) == Mode::Record {
+                    self.panel_cancelled();
+                }
                 self.pins.show_capture();
             }
             Outcome::Copy(img) => {
@@ -464,8 +507,21 @@ impl ApplicationHandler<Action> for Snap {
             Outcome::Save(shot) => {
                 self.overlay = None;
                 match (std::mem::replace(&mut self.mode, Mode::Shot), shot) {
+                    (Mode::Record, Shot::Window { hwnd, .. }) if is_desktop(hwnd) => match cursor_monitor() {
+                        Some((target, bounds)) => self.begin(event_loop, target, bounds, None),
+                        None => {
+                            self.pins.show_capture();
+                            tooltip(&self.app, "Snapr: capture failed");
+                        }
+                    },
                     (Mode::Record, Shot::Window { hwnd, .. }) => {
-                        self.begin(event_loop, Target::Window(hwnd), window_rect(hwnd), None);
+                        let camera = !panel::choices(&self.app).1.is_empty();
+                        let rect = window_rect(hwnd);
+                        let centre = (rect.0 + rect.2 / 2, rect.1 + rect.3 / 2);
+                        match camera.then(|| region_target(rect, centre, Some(hwnd))).flatten() {
+                            Some((target, bounds, area)) => self.begin(event_loop, target, bounds, area),
+                            None => self.begin(event_loop, Target::Window(hwnd), rect, None),
+                        }
                     }
                     (Mode::Record, Shot::Region { rect, start, hwnd }) => match region_target(rect, start, hwnd) {
                         Some((target, bounds, area)) => self.begin(event_loop, target, bounds, area),
@@ -506,10 +562,9 @@ impl ApplicationHandler<Action> for Snap {
             Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot, false),
             Action::Text => self.pick(event_loop, Pick::Area, Mode::Text, false),
             Action::Record => {
-                if !self.cancel_countdown() {
-                    self.pick(event_loop, Pick::Window, Mode::Record, false);
-                }
+                self.cancel_countdown();
             }
+            Action::RecordPick(mode) => self.record_pick(event_loop, mode),
             Action::CancelCountdown => {
                 self.cancel_countdown();
             }
@@ -525,10 +580,15 @@ impl ApplicationHandler<Action> for Snap {
                 self.frame = None;
                 self.pins.show_recording();
                 ended(&self.app);
+                if self.app.state::<State>().discard.swap(false, Ordering::Relaxed) {
+                    let _ = std::fs::remove_file(&path);
+                    return;
+                }
                 let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path, false);
             }
             Action::RecordFailed(e) => {
+                self.app.state::<State>().discard.store(false, Ordering::Relaxed);
                 self.frame = None;
                 self.pins.show_recording();
                 ended(&self.app);
@@ -539,7 +599,14 @@ impl ApplicationHandler<Action> for Snap {
 }
 
 impl Snap {
+    fn panel_cancelled(&self) {
+        let handle = self.app.clone();
+        let _ = self.app.run_on_main_thread(move || panel::cancelled(&handle));
+    }
+
     fn begin(&mut self, event_loop: &ActiveEventLoop, target: Target, bounds: Rect, area: Option<Rect>) {
+        let handle = self.app.clone();
+        let _ = self.app.run_on_main_thread(move || panel::picked(&handle, bounds));
         self.pins.hide_recording();
         self.pins.show_capture();
         let state = self.app.state::<State>();
@@ -590,6 +657,31 @@ impl Snap {
         true
     }
 
+    fn record_pick(&mut self, event_loop: &ActiveEventLoop, mode: config::RecordMode) {
+        if self.overlay.is_some() {
+            self.panel_cancelled();
+            return;
+        }
+        let pick = match mode {
+            config::RecordMode::Fullscreen => {
+                match cursor_monitor() {
+                    Some((target, bounds)) => self.begin(event_loop, target, bounds, None),
+                    None => {
+                        tooltip(&self.app, "Snapr: capture failed");
+                        self.panel_cancelled();
+                    }
+                }
+                return;
+            }
+            config::RecordMode::Window => Pick::Window,
+            config::RecordMode::Area => Pick::Area,
+        };
+        self.pick(event_loop, pick, Mode::Record, false);
+        if self.mode != Mode::Record {
+            self.panel_cancelled();
+        }
+    }
+
     fn pick(&mut self, event_loop: &ActiveEventLoop, pick: Pick, mode: Mode, draw: bool) {
         if self.overlay.is_some() {
             return;
@@ -597,7 +689,7 @@ impl Snap {
         self.toast = None;
         self.pins.hide_capture();
         let vi = self.app.state::<State>().cfg.read().unwrap().language == "vi";
-        self.overlay = Overlay::open(event_loop, pick, mode == Mode::Record, draw.then_some(self.style), vi);
+        self.overlay = Overlay::open(event_loop, pick, mode == Mode::Record && matches!(pick, Pick::Area), draw.then_some(self.style), vi);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
             self.pins.show_capture();
@@ -739,12 +831,12 @@ pub(crate) fn show_settings(app: &AppHandle, section: &str) {
     let _ = app.emit_to("main", "settings-open", section);
 }
 
-fn tray_menu(app: &AppHandle, stop: &MenuItem<tauri::Wry>) -> tauri::Result<Menu<tauri::Wry>> {
+fn tray_menu(app: &AppHandle, stop: &MenuItem<tauri::Wry>, pause: &MenuItem<tauri::Wry>) -> tauri::Result<Menu<tauri::Wry>> {
     let gallery = MenuItem::with_id(app, "gallery", "Gallery", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open folder", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Menu::with_items(app, &[&gallery, &settings, &open, stop, &quit])
+    Menu::with_items(app, &[&gallery, &settings, &open, stop, pause, &quit])
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -764,6 +856,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             if !stop_recording(app) {
                 let _ = app.state::<State>().proxy.lock().unwrap().send_event(Action::CancelCountdown);
             }
+        }
+        "pause" => {
+            let paused = app.state::<State>().recording.lock().unwrap().as_ref().is_some_and(Recorder::paused);
+            pause_recording(app, !paused);
         }
         "update" => update::from_tray(app),
         "quit" => {
@@ -794,8 +890,9 @@ pub fn run() {
             let proxy = spawn_capture(handle.clone());
             mouse::start(proxy.clone());
             let stop = MenuItem::with_id(app, "stop", "Stop recording", false, None::<&str>)?;
+            let pause = MenuItem::with_id(app, "pause", "Pause recording", false, None::<&str>)?;
             let upgrade = MenuItem::with_id(app, "update", "Update", true, None::<&str>)?;
-            let menu = tray_menu(&handle, &stop)?;
+            let menu = tray_menu(&handle, &stop, &pause)?;
             app.manage(State {
                 path,
                 cfg: RwLock::new(cfg),
@@ -806,10 +903,14 @@ pub fn run() {
                 recording: Mutex::new(None),
                 download: Mutex::new(None),
                 counting: AtomicBool::new(false),
+                discard: AtomicBool::new(false),
                 update: Mutex::new(update::Updater::default()),
                 menu,
                 stop,
+                pause,
                 upgrade,
+                panel: Mutex::new(panel::Panel::default()),
+                capture: Mutex::new(None),
             });
             build_tray(&handle)?;
             apply(&handle);
@@ -820,13 +921,33 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.label() != "main"
+            {
+                api.prevent_close();
+                if window.label() == panel::PANEL && panel::phase(window.app_handle()) == panel::Phase::Setup {
+                    panel::close(window.app_handle());
+                }
+            } else if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
                 apply(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
+            panel::record_panel_state,
+            panel::record_inputs,
+            panel::record_outputs,
+            panel::record_panel_fit,
+            panel::record_select,
+            panel::record_start,
+            panel::record_close,
+            panel::record_pause,
+            panel::record_resume,
+            panel::record_stop,
+            panel::record_discard,
+            panel::record_camera_toggle,
+            panel::open_camera_settings,
             settings::load,
             settings::defaults,
             settings::resolve_dir,

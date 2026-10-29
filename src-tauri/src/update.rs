@@ -9,7 +9,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 const FIRST: Duration = Duration::from_secs(10);
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 const THROTTLE: Duration = Duration::from_millis(100);
-const MENU_SLOT: usize = 4;
+const MENU_SLOT: usize = 5;
 
 #[derive(Clone, Copy, Default, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

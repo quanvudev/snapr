@@ -5,34 +5,42 @@ Defines how snapr records the contents of a picked window to an MP4 video file: 
 
 ## Requirements
 
-### Requirement: Record hotkey starts a window recording
-When no recording is running, pressing the record hotkey SHALL open the window picker. Clicking a highlighted window SHALL close the picker and start recording that window. Dragging a rectangle with the left mouse button SHALL close the picker on release and start recording that area. Cancelling the picker SHALL start nothing.
+### Requirement: Record hotkey starts a recording
+When no recording is running, pressing the record hotkey SHALL open the recording panel, as described by the `recording-panel` capability. Start SHALL follow the chosen mode: full screen records the monitor under the cursor with no picker, window opens a picker where a click records the window, and area opens a picker where a drag records that rectangle. Cancelling a picker SHALL start nothing and return to the panel.
+
+#### Scenario: Full screen
+- **WHEN** the mode is full screen and the user clicks Start
+- **THEN** recording of the monitor under the cursor starts with no picker
 
 #### Scenario: Pick a window
-- **WHEN** no recording is running and the user presses the record hotkey and clicks a highlighted window
+- **WHEN** the mode is window, the user clicks Start and clicks a highlighted window
 - **THEN** the picker closes and recording of that window starts
 
 #### Scenario: Drag an area
-- **WHEN** no recording is running and the user presses the record hotkey and drags a rectangle over part of a window
+- **WHEN** the mode is area, the user clicks Start and drags a rectangle over part of a window
 - **THEN** the picker closes on release and recording of that rectangle starts, not of the window under it
 
 #### Scenario: Cancel the picker
-- **WHEN** the user presses Escape or right-clicks in the picker opened by the record hotkey
-- **THEN** the picker closes and no recording starts
+- **WHEN** the user presses Escape or right-clicks in the picker opened from the panel
+- **THEN** the picker closes, no recording starts and the panel is shown again
 
 #### Scenario: Recording cannot start
 - **WHEN** the picked window cannot be captured or the output file cannot be created
 - **THEN** no recording runs and the tray tooltip shows `snapr: <error>`
 
 ### Requirement: Only one recording runs at a time
-While a recording is running, the record hotkey SHALL stop it and SHALL NOT open the picker.
+While a recording is running, the record hotkey SHALL stop it and SHALL NOT open the panel or the picker. While the panel is open before a recording, the record hotkey SHALL close it.
 
 #### Scenario: Record hotkey while recording
 - **WHEN** a recording is running and the user presses the record hotkey
-- **THEN** the recording stops and no picker opens
+- **THEN** the recording stops and no panel or picker opens
+
+#### Scenario: Record hotkey while the panel is open
+- **WHEN** the panel is open before a recording and the user presses the record hotkey
+- **THEN** the panel closes and nothing is recorded
 
 ### Requirement: Recording can be stopped from the tray
-The tray menu SHALL have a Stop recording item that is enabled only while a recording is running and stops it.
+The tray menu SHALL have a Stop recording item that is enabled only while a recording is running and stops it, and a Pause recording item, enabled only while a recording is running, that reads Resume recording while the recording is paused.
 
 #### Scenario: Stop from the tray
 - **WHEN** a recording is running and the user chooses Stop recording in the tray menu
@@ -40,14 +48,22 @@ The tray menu SHALL have a Stop recording item that is enabled only while a reco
 
 #### Scenario: Nothing to stop
 - **WHEN** no recording is running
-- **THEN** the Stop recording item is disabled
+- **THEN** the Stop recording and Pause recording items are disabled
+
+#### Scenario: Pause from the tray
+- **WHEN** a recording is running and the user chooses Pause recording
+- **THEN** the recording pauses and the item reads Resume recording
 
 ### Requirement: A running recording is visible
-While a recording is running, Windows SHALL draw its capture border around the recorded window or monitor and the tray tooltip SHALL read `snapr: recording…`. While an area recording is running, snapr SHALL also draw a frame just outside the recorded area that does not appear in the recording. When the recording ends the frame SHALL disappear and the tooltip SHALL return to the normal status text.
+While a recording is running, Windows SHALL draw its capture border around the recorded window or monitor, the recording panel SHALL show the elapsed time and the tray tooltip SHALL read `snapr: recording…`, or `snapr: paused` while paused. While an area recording is running, snapr SHALL also draw a frame just outside the recorded area that does not appear in the recording. When the recording ends the frame SHALL disappear and the tooltip SHALL return to the normal status text.
 
 #### Scenario: During recording
 - **WHEN** a recording is running
 - **THEN** the recorded window has the capture border and the tray tooltip reads `snapr: recording…`
+
+#### Scenario: While paused
+- **WHEN** a recording is paused
+- **THEN** the tray tooltip reads `snapr: paused` and the panel timer does not advance
 
 #### Scenario: During an area recording
 - **WHEN** an area recording is running
@@ -72,11 +88,23 @@ Choosing Quit while a recording is running SHALL stop it and finalize the file b
 - **THEN** a playable MP4 file is saved and the app exits
 
 ### Requirement: Recordings are saved as MP4 with unique names
-A recording SHALL be saved in the configured output folder as an H.264 MP4 file at the configured frame rate (30 or 60 frames per second), with the cursor and without audio. It SHALL be named by the local timestamp when recording started, with a `_N` suffix when the name is taken. A recording SHALL NOT be copied to the clipboard.
+A recording SHALL be saved in the configured output folder as an H.264 MP4 file at the configured frame rate (30 or 60 frames per second), with the cursor. It SHALL contain an AAC audio track when a microphone or a speaker was selected, and no audio track otherwise. It SHALL be named by the local timestamp when recording started, with a `_N` suffix when the name is taken. A recording SHALL NOT be copied to the clipboard.
 
 #### Scenario: File saved
 - **WHEN** a recording ends
 - **THEN** a `.mp4` file named by the start timestamp exists in the output folder and plays in a standard video player
+
+#### Scenario: Smooth motion
+- **WHEN** a 60 fps recording captures continuous motion, such as a scrolling page
+- **THEN** almost every frame of the saved video differs from the previous one, with no repeated runs of frames
+
+#### Scenario: Upright video
+- **WHEN** an area recording ends
+- **THEN** the saved video is upright, not mirrored or upside down
+
+#### Scenario: Silent recording
+- **WHEN** a recording ends that was started with no microphone and no speaker
+- **THEN** the saved file has no audio track
 
 #### Scenario: Name taken
 - **WHEN** a file with the same timestamp name already exists
@@ -134,19 +162,15 @@ The recording frame rate SHALL be 30 or 60 frames per second, taken from the con
 - **WHEN** the user changes the frame rate while a recording is running
 - **THEN** that recording keeps its starting frame rate and the next recording uses the new one
 
-### Requirement: Record picker falls back to the full screen
-In the picker opened by the record hotkey, a left click that is not on an application window SHALL close the picker and start recording the whole monitor under the cursor. The desktop counts as not an application window. The window screenshot picker SHALL NOT change.
+### Requirement: Window picker falls back to the full screen
+In the record window picker, a left click on the desktop SHALL close the picker and start recording the whole monitor under the cursor. The window screenshot picker SHALL NOT change.
 
 #### Scenario: Click the desktop
-- **WHEN** no recording is running, the user presses the record hotkey and left-clicks the desktop
+- **WHEN** the mode is window and the user left-clicks the desktop in the picker
 - **THEN** the picker closes and recording of the monitor under the cursor starts, with the capture border around that monitor and the tooltip `snapr: recording…`
 
-#### Scenario: Click a window
-- **WHEN** the user left-clicks a highlighted application window in the record picker
-- **THEN** that window is recorded, not the full screen
-
 #### Scenario: Multiple monitors
-- **WHEN** the user left-clicks the desktop on the second monitor in the record picker
+- **WHEN** the user records the full screen with the cursor on the second monitor
 - **THEN** only the second monitor is recorded, at that monitor's size rounded down to even width and height
 
 #### Scenario: Stop a full-screen recording
@@ -158,10 +182,10 @@ In the picker opened by the record hotkey, a left click that is not on an applic
 - **THEN** no full-screen capture is taken and the picker behaves as before
 
 ### Requirement: Area recording follows the drag
-An area recording SHALL capture the dragged rectangle in physical pixels, clipped to the monitor where the drag started, with the video size equal to that rectangle rounded down to even width and height. A drag shorter than a few pixels in either direction SHALL count as a click. The window screenshot picker SHALL NOT accept a drag.
+An area recording SHALL capture the dragged rectangle in physical pixels, clipped to the monitor where the drag started, with the video size equal to that rectangle rounded down to even width and height. A rectangle smaller than 16x16 pixels SHALL record the window under the start of the drag, or the monitor on the desktop. The window pickers SHALL NOT accept a drag.
 
 #### Scenario: Odd area size
-- **WHEN** the user drags a 641x481 pixel rectangle in the record picker
+- **WHEN** the user drags a 641x481 pixel rectangle in the record area picker
 - **THEN** the saved video is 640x480 and shows only that rectangle
 
 #### Scenario: Drag across monitors
@@ -169,16 +193,16 @@ An area recording SHALL capture the dragged rectangle in physical pixels, clippe
 - **THEN** the recorded area is clipped to the first monitor
 
 #### Scenario: Tiny drag
-- **WHEN** the user presses and releases with a movement of one or two pixels over a window
-- **THEN** that window is recorded as with a click
+- **WHEN** the mode is area and the user presses and releases with a movement of one or two pixels over a window
+- **THEN** that window is recorded
 
 #### Scenario: Window moves under the area
 - **WHEN** an area recording is running and the window under it is moved away
 - **THEN** the recording keeps showing the same screen rectangle
 
-#### Scenario: Window screenshot picker unchanged
-- **WHEN** the user drags in the picker opened by the window screenshot hotkey
-- **THEN** no area is selected and the picker behaves as before
+#### Scenario: Window pickers ignore drags
+- **WHEN** the user drags in the record window picker or the window screenshot picker
+- **THEN** no area is selected
 
 ### Requirement: Countdown before recording
 When the countdown setting is on, a pick in the record picker SHALL show a 3-second countdown (3, 2, 1) centered on the picked window, monitor or area before recording starts. The countdown SHALL NOT appear in the recording. The recording SHALL be named by the timestamp at which it actually starts. When the setting is off, recording SHALL start immediately as before.
@@ -220,3 +244,43 @@ The countdown SHALL be controlled by a setting that defaults to off. A config wi
 #### Scenario: Turned on
 - **WHEN** the user turns the countdown on in the Recording settings and then starts a recording
 - **THEN** the countdown is shown before that recording
+
+### Requirement: Recordings capture audio
+When a microphone is selected, the recording SHALL contain its sound. When a speaker is selected, the recording SHALL contain what that output device plays. When both are selected, they SHALL be mixed into one stereo track. Audio SHALL stay in sync with the video within about 100 ms over a 10-minute recording.
+
+#### Scenario: Narrated tutorial
+- **WHEN** the user records with a microphone and speaks
+- **THEN** the saved video plays the voice in sync with the screen
+
+#### Scenario: Microphone and system audio
+- **WHEN** the user records a playing video with its speaker and a microphone selected, and comments over it
+- **THEN** the saved file contains both the video's sound and the voice
+
+### Requirement: Recordings can be paused
+Pausing SHALL stop adding video frames and audio to the file, and resuming SHALL continue it. The paused time SHALL be cut from the saved file so it plays without a frozen gap. Stopping while paused SHALL save the file as recorded up to the pause.
+
+#### Scenario: Pause and resume
+- **WHEN** the user records for 10 seconds, pauses for 20 seconds, resumes and records for 10 seconds
+- **THEN** the saved video is about 20 seconds long and continuous
+
+#### Scenario: Stop while paused
+- **WHEN** a paused recording is stopped
+- **THEN** a playable MP4 with the content before the pause is saved
+
+### Requirement: Lost microphone does not end the recording
+If the selected microphone disappears during a recording, the recording SHALL continue, its audio SHALL be silent from that moment (system audio continues when on), and the panel SHALL show that the microphone was lost.
+
+#### Scenario: Headset unplugged
+- **WHEN** the user unplugs the selected USB microphone during a recording
+- **THEN** the recording continues, the panel shows a lost-microphone warning and the saved file plays with silence from that point
+
+### Requirement: Window pick with the camera on records an area
+When the camera is on, picking a window in the record picker SHALL record that window's current screen rectangle as an area recording, so the webcam window can appear in the video. When the camera is off, picking a window SHALL record the window as before.
+
+#### Scenario: Window with webcam
+- **WHEN** the camera is on and the user picks a window
+- **THEN** the window's rectangle is recorded as an area and the webcam appears in the video when it is over that rectangle
+
+#### Scenario: Window without webcam
+- **WHEN** the camera is off and the user picks a window
+- **THEN** that window is recorded on its own, as before

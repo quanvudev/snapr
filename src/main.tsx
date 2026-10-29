@@ -1,9 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { CameraApp } from "./components/camera";
+import { PanelApp } from "./components/panel";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "./components/ui/toast";
 
+const VIEW = new URLSearchParams(window.location.search).get("view");
 const BLOCKED_CTRL_KEYS = ["r", "p"];
 
 if (import.meta.env.PROD) {
@@ -16,7 +19,7 @@ if (import.meta.env.PROD) {
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <TooltipProvider>
-      <App />
+      {VIEW === "panel" ? <PanelApp /> : VIEW === "camera" ? <CameraApp /> : <App />}
     </TooltipProvider>
     <Toaster />
   </React.StrictMode>,

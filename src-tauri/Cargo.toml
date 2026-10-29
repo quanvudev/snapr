@@ -34,8 +34,10 @@ softbuffer = "0.4"
 xcap = "0.9"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 windows-capture = "2"
-windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Storage_Streams", "Foundation", "Foundation_Collections", "Win32_System_WinRT", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi"] }
+cpal = "0.18"
+windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Storage_Streams", "Foundation", "Foundation_Collections", "Win32_System_WinRT", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading"] }
 tauri-plugin-notification = "2"
+windows-core = "0.62"
 windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Storage_Xps", "Win32_UI_HiDpi", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
 tiny-skia = "0.12.0"
 ab_glyph = "0.2.32"
@@ -58,5 +60,12 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
+
+[patch.crates-io]
+windows-capture = { path = "vendor/windows-capture" }

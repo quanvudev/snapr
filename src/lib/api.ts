@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+export type RecordMode = "fullscreen" | "window" | "area";
+
 export type HotkeyMode = "fixed" | "manual";
 export type Hotkeys = { mode: HotkeyMode; modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string; manual: string[] };
 export type Theme = "system" | "light" | "dark";
@@ -19,6 +21,10 @@ export type Config = {
   preview_seconds: number;
   record_fps: number;
   record_countdown: boolean;
+  record_mic: string;
+  record_camera: string;
+  record_speaker: string;
+  record_mode: RecordMode;
   text_capture: boolean;
   ocr_engine: OcrEngine;
   paddle_model: PaddleSize;
@@ -39,6 +45,21 @@ export type UpdateStatus = { state: UpdatePhase; version: string | null; done: n
 export type InstalledApp = { name: string; path: string };
 export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other" };
 export type BulkFailure = { path: string; error: string };
+
+export type InputDevice = { id: string; name: string; default: boolean };
+export type PanelPhase = "closed" | "setup" | "picking" | "countdown" | "recording";
+export type PanelState = {
+  phase: PanelPhase;
+  mic: string;
+  camera: string;
+  speaker: string;
+  mode: RecordMode;
+  started_ms: number | null;
+  paused_total_ms: number;
+  paused_at_ms: number | null;
+  camera_hidden: boolean;
+  warning: "mic_lost" | null;
+};
 
 export type Recognized = { qr: string[]; text: string };
 
@@ -81,6 +102,22 @@ export const api = {
   mediaSrc: (path: string) => convertFileSrc(path, "media"),
   onSettingsOpen: (cb: (section: string) => void) => listen<string>("settings-open", (e) => cb(e.payload)),
   onGalleryChanged: (cb: () => void) => listen("gallery-changed", cb),
+  recordPanelState: () => invoke<PanelState>("record_panel_state"),
+  recordInputs: () => invoke<InputDevice[]>("record_inputs"),
+  recordOutputs: () => invoke<InputDevice[]>("record_outputs"),
+  recordSelect: (mic: string, camera: string, speaker: string, mode: RecordMode) =>
+    invoke("record_select", { mic, camera, speaker, mode }),
+  recordPanelFit: (width: number, height: number) => invoke("record_panel_fit", { width, height }),
+  recordStart: () => invoke("record_start"),
+  recordClose: () => invoke("record_close"),
+  recordPause: () => invoke("record_pause"),
+  recordResume: () => invoke("record_resume"),
+  recordStop: () => invoke("record_stop"),
+  recordDiscard: () => invoke("record_discard"),
+  recordCameraToggle: () => invoke("record_camera_toggle"),
+  openCameraSettings: () => invoke("open_camera_settings"),
+  onRecordPanel: (cb: (s: PanelState) => void) => listen<PanelState>("record-panel", (e) => cb(e.payload)),
+  onRecordLevel: (cb: (level: number) => void) => listen<number>("record-level", (e) => cb(e.payload)),
   hide: async () => {
     await invoke("set_listening", { on: false });
     await getCurrentWindow().hide();

@@ -123,6 +123,15 @@ pub fn skipped(i: usize, combos: &[String; SLOTS], text_active: bool, ring_enabl
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecordMode {
+    #[default]
+    Fullscreen,
+    Window,
+    Area,
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OcrEngine {
@@ -168,6 +177,14 @@ pub struct Config {
     pub record_fps: u32,
     #[serde(default)]
     pub record_countdown: bool,
+    #[serde(default = "default_mic")]
+    pub record_mic: String,
+    #[serde(default)]
+    pub record_camera: String,
+    #[serde(default)]
+    pub record_speaker: String,
+    #[serde(default)]
+    pub record_mode: RecordMode,
     pub text_capture: bool,
     #[serde(default)]
     pub ocr_engine: OcrEngine,
@@ -177,6 +194,10 @@ pub struct Config {
     pub padding: Padding,
     pub hotkeys: Hotkeys,
     pub ring: Ring,
+}
+
+fn default_mic() -> String {
+    "default".into()
 }
 
 impl Default for Hotkeys {
@@ -235,6 +256,10 @@ impl Default for Config {
             theme: "system".into(),
             record_fps: 30,
             record_countdown: false,
+            record_mic: default_mic(),
+            record_camera: String::new(),
+            record_speaker: String::new(),
+            record_mode: RecordMode::Fullscreen,
             text_capture: true,
             ocr_engine: OcrEngine::Windows,
             paddle_model: PaddleSize::Small,

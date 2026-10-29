@@ -43,7 +43,7 @@ The About group SHALL show an update row under the version. The row SHALL show o
 ## MODIFIED Requirements
 
 ### Requirement: Tray menu has a Gallery item
-The tray menu SHALL list, in order, Gallery, Settings…, Open folder, Stop recording and Quit. When an update is available, an "Update to <version>" item SHALL appear directly above Quit, and SHALL be absent otherwise. Gallery SHALL open the window on the Gallery group. On first run, before setup is completed, both Gallery and Settings… SHALL show the setup page.
+The tray menu SHALL list, in order, Gallery, Settings…, Open folder, Stop recording, Pause recording and Quit. When an update is available, an "Update to <version>" item SHALL appear directly above Quit, and SHALL be absent otherwise. Gallery SHALL open the window on the Gallery group. On first run, before setup is completed, both Gallery and Settings… SHALL show the setup page.
 
 #### Scenario: Gallery item
 - **WHEN** the user right-clicks the tray icon

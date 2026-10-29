@@ -14,7 +14,6 @@ use winit::window::{CursorIcon, Window, WindowId, WindowLevel};
 
 const BORDER: u32 = 0x3090f0;
 const SELECTION_BORDER: i32 = 2;
-const DRAG_THRESHOLD: i32 = 4;
 const HANDLE_SIZE: f32 = 8.0;
 const HANDLE_HIT: f32 = 14.0;
 const HANDLE_FILL: u32 = 0xffffff;
@@ -87,7 +86,6 @@ pub type Rect = (i32, i32, i32, i32);
 pub struct Overlay {
     pick: Pick,
     record: bool,
-    area: bool,
     origin: (i32, i32),
     window: Rc<Window>,
     surface: Surface<Rc<Window>, Rc<Window>>,
@@ -180,7 +178,6 @@ impl Overlay {
         Some(Self {
             pick,
             record,
-            area: false,
             origin: (mx, my),
             window,
             surface,
@@ -223,16 +220,6 @@ impl Overlay {
                 self.cursor = (position.x as i32, position.y as i32);
                 match self.pick {
                     Pick::Area if self.drag.is_some() => self.window.request_redraw(),
-                    Pick::Window if self.area => self.window.request_redraw(),
-                    Pick::Window if self.record
-                        && self.drag.is_some_and(|(x, y)| {
-                            (self.cursor.0 - x).abs() > DRAG_THRESHOLD || (self.cursor.1 - y).abs() > DRAG_THRESHOLD
-                        }) =>
-                    {
-                        self.area = true;
-                        self.hover = None;
-                        self.window.request_redraw();
-                    }
                     Pick::Window => {
                         let hover = self.hit();
                         if hover != self.hover {
@@ -253,6 +240,11 @@ impl Overlay {
                 (Pick::Area, ElementState::Released) => {
                     let Some(start) = self.drag.take() else { return Outcome::Pending };
                     let r = span(start, self.cursor);
+                    if self.record {
+                        let (ox, oy) = self.origin;
+                        let hwnd = self.window_at(start);
+                        return Outcome::Save(Shot::Region { rect: (r.0 + ox, r.1 + oy, r.2, r.3), start: (start.0 + ox, start.1 + oy), hwnd });
+                    }
                     if r.2 >= 3 && r.3 >= 3 {
                         if let Some(style) = self.draw {
                             return self.begin_annotation(r, style);
@@ -261,24 +253,6 @@ impl Overlay {
                     }
                     self.window.request_redraw();
                     Outcome::Pending
-                }
-                (Pick::Window, ElementState::Pressed) if self.record => {
-                    self.drag = Some(self.cursor);
-                    Outcome::Pending
-                }
-                (Pick::Window, ElementState::Released) if self.record && self.area => {
-                    let Some(start) = self.drag.take() else { return Outcome::Pending };
-                    self.area = false;
-                    let (x, y, w, h) = span(start, self.cursor);
-                    let (ox, oy) = self.origin;
-                    let hwnd = self.window_at(start);
-                    Outcome::Save(Shot::Region { rect: (x + ox, y + oy, w, h), start: (start.0 + ox, start.1 + oy), hwnd })
-                }
-                (Pick::Window, ElementState::Released) if self.record => {
-                    if self.drag.take().is_none() {
-                        return Outcome::Pending;
-                    }
-                    self.pick_window()
                 }
                 (Pick::Window, ElementState::Pressed) => self.pick_window(),
                 (Pick::Window, ElementState::Released) => Outcome::Pending,
@@ -539,14 +513,6 @@ impl Overlay {
         self.finish().map_or(Outcome::Cancel, Outcome::Pin)
     }
 
-    pub fn hovered(&self) -> Option<isize> {
-        self.window_at(self.cursor)
-    }
-
-    pub fn clicked(&self) -> bool {
-        self.drag.is_some() && !self.area
-    }
-
     fn window_at(&self, at: (i32, i32)) -> Option<isize> {
         let (win, _) = &self.windows[self.hit_at(at)?];
         Some(win.id().map_or(0, |id| id as i32 as isize))
@@ -606,7 +572,6 @@ impl Overlay {
         }
         let highlight = match self.pick {
             Pick::Area => self.drag.map(|s| span(s, self.cursor)),
-            Pick::Window if self.area => self.drag.map(|s| span(s, self.cursor)),
             Pick::Window => self.hover.map(|i| self.windows[i].1),
         };
         if let Some((x0, y0, x1, y1)) = highlight.and_then(|r| clamp(r, w as u32, h)) {

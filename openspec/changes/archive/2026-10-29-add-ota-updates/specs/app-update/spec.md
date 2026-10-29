@@ -114,15 +114,15 @@ After a verified download the app SHALL run the installer without prompts beyond
 - **WHEN** Start with Windows was on before the update
 - **THEN** after the update snapr still starts at login
 
-### Requirement: Releases are published from version tags
-Pushing a tag `v<version>` to the private repository SHALL build the Windows installer, sign it for the updater and publish the installer, its signature and `latest.json` as a release of `quanvudev/snapr-releases` that becomes its latest release. The release SHALL fail without publishing when the tag does not equal the app version.
+### Requirement: Releases are published by hand
+The owner SHALL publish a release either by running the Release workflow by hand or with the local release script. Either SHALL build the Windows installer, sign it for the updater and publish the installer, its signature and `latest.json` as a release `v<version>` of `quanvudev/snapr-releases` that becomes its latest release. It SHALL fail without publishing when the project versions disagree or the version is already released.
 
-#### Scenario: Tagged release
-- **WHEN** the owner pushes tag `v1.6.0` and the app version is 1.6.0
-- **THEN** a release `v1.6.0` with the installer, `.sig` and `latest.json` appears in `snapr-releases` and installed copies see 1.6.0
+#### Scenario: Manual release
+- **WHEN** the app version is 1.7.0 and the owner runs the Release workflow
+- **THEN** a release `v1.7.0` with the installer, `.sig` and `latest.json` appears in `snapr-releases` and installed copies see 1.7.0
 
-#### Scenario: Mismatched tag
-- **WHEN** the owner pushes tag `v1.6.0` and the app version is 1.5.1
+#### Scenario: Version already released
+- **WHEN** the owner runs a release for a version that already exists in `snapr-releases`
 - **THEN** the release fails and nothing is published
 
 #### Scenario: Source stays private
