@@ -15,6 +15,21 @@ use winit::window::{CursorIcon, Window, WindowId, WindowLevel};
 const BORDER: u32 = 0x3090f0;
 const SELECTION_BORDER: i32 = 2;
 const DRAG_THRESHOLD: i32 = 4;
+const HANDLE_SIZE: f32 = 8.0;
+const HANDLE_HIT: f32 = 14.0;
+const HANDLE_FILL: u32 = 0xffffff;
+const MIN_SELECTION: i32 = 3;
+const LABEL_GAP: f32 = 8.0;
+const HANDLES: [Handle; 8] = [
+    Handle(-1, -1),
+    Handle(0, -1),
+    Handle(1, -1),
+    Handle(-1, 0),
+    Handle(1, 0),
+    Handle(-1, 1),
+    Handle(0, 1),
+    Handle(1, 1),
+];
 
 #[derive(Clone, Copy)]
 pub enum Pick {
@@ -26,6 +41,39 @@ pub enum Outcome {
     Pending,
     Cancel,
     Save(Shot),
+    Copy(RgbaImage),
+    Pin(RgbaImage),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Handle(i32, i32);
+
+impl Handle {
+    fn point(self, (x, y, w, h): Rect) -> (i32, i32) {
+        (x + (self.0 + 1) * w / 2, y + (self.1 + 1) * h / 2)
+    }
+
+    fn cursor(self) -> CursorIcon {
+        match self {
+            Handle(0, _) => CursorIcon::NsResize,
+            Handle(_, 0) => CursorIcon::EwResize,
+            Handle(x, y) if x == y => CursorIcon::NwseResize,
+            _ => CursorIcon::NeswResize,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Grip {
+    Resize(Handle),
+    Move,
+}
+
+#[derive(Clone, Copy)]
+struct Adjust {
+    grip: Grip,
+    from: (i32, i32),
+    start: Rect,
 }
 
 pub enum Shot {
@@ -63,6 +111,9 @@ struct Annotation {
     hover: Option<Button>,
     palette: Option<Palette>,
     icon: CursorIcon,
+    adjust: Option<Adjust>,
+    space: bool,
+    label: Option<((i32, i32), Pixmap)>,
 }
 
 fn desktop() -> Option<(i32, i32, RgbaImage, Vec<Rect>)> {
@@ -255,36 +306,45 @@ impl Overlay {
         let (w, h) = self.frame.dimensions();
         let Some((x0, y0, x1, y1)) = clamp(r, w, h) else { return Outcome::Cancel };
         let selection = (x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32);
-        let centre = (selection.0 + selection.2 / 2, selection.1 + selection.3 / 2);
-        let monitor = self
-            .monitors
-            .iter()
-            .copied()
-            .find(|&m| contains(m, centre))
-            .unwrap_or((0, 0, w as i32, h as i32));
+        let monitor = monitor_of(&self.monitors, selection, (w, h));
         let scale = self.window.scale_factor() as f32;
         let Some((sketch, toolbar)) =
-            Sketch::new(&self.frame, selection, scale, style).zip(Toolbar::place(selection, monitor, scale))
+            Sketch::new(&self.frame, selection, scale, style).zip(Toolbar::place(selection, monitor, scale, self.vi))
         else {
             return Outcome::Cancel;
         };
-        self.annotation = Some(Annotation { sketch, toolbar, hover: None, palette: None, icon: CursorIcon::Crosshair });
+        self.annotation = Some(Annotation {
+            sketch,
+            toolbar,
+            hover: None,
+            palette: None,
+            icon: CursorIcon::Crosshair,
+            adjust: None,
+            space: false,
+            label: None,
+        });
         self.hover_toolbar();
         self.window.request_redraw();
         Outcome::Pending
     }
 
     fn hover_toolbar(&mut self) {
+        let scale = self.window.scale_factor() as f32;
         let Some(a) = self.annotation.as_mut() else { return };
         let (kind, style) = a.sketch.options();
         let fill = style.stroke.fill;
-        let hover = match a.palette {
-            Some(target) => a.toolbar.palette_hit(self.cursor, target, kind, fill).map(Button::Swatch),
-            None => a.toolbar.hit(self.cursor, kind, fill),
-        };
-        let icon = if hover.is_some() {
+        let selection = a.sketch.selection();
+        let hover = a.toolbar.hit(self.cursor, kind, fill, a.palette).filter(|&b| enabled(&a.sketch, b));
+        let icon = if let Some(adjust) = a.adjust {
+            match adjust.grip {
+                Grip::Resize(handle) => handle.cursor(),
+                Grip::Move => CursorIcon::Move,
+            }
+        } else if hover.is_some() {
             CursorIcon::Pointer
-        } else if a.sketch.grabs(self.cursor) {
+        } else if let Some(handle) = handle_at(selection, self.cursor, scale) {
+            handle.cursor()
+        } else if (a.space && contains(selection, self.cursor)) || a.sketch.grabs(self.cursor) {
             CursorIcon::Move
         } else {
             CursorIcon::Crosshair
@@ -300,6 +360,7 @@ impl Overlay {
     }
 
     fn annotate(&mut self, event: WindowEvent) -> Outcome {
+        let scale = self.window.scale_factor() as f32;
         let Some(a) = self.annotation.as_mut() else { return Outcome::Pending };
         let shift = self.modifiers.shift_key();
         match event {
@@ -312,7 +373,12 @@ impl Overlay {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = (position.x as i32, position.y as i32);
-                if a.sketch.drag_to(self.cursor, shift) {
+                if let Some(adjust) = a.adjust {
+                    let r = adjusted(adjust, self.cursor, self.frame.dimensions());
+                    if r != a.sketch.selection() && a.sketch.reselect(&self.frame, r).is_some() {
+                        self.window.request_redraw();
+                    }
+                } else if a.sketch.drag_to(self.cursor, shift) {
                     self.window.request_redraw();
                 }
                 self.hover_toolbar();
@@ -321,36 +387,63 @@ impl Overlay {
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 let (kind, style) = a.sketch.options();
                 let fill = style.stroke.fill;
-                if let Some(target) = a.palette.take() {
-                    if let Some(i) = a.toolbar.palette_hit(self.cursor, target, kind, fill) {
-                        match target {
-                            Palette::Stroke => a.sketch.set_colour(draw::PALETTE[i]),
-                            Palette::Fill => a.sketch.set_fill_colour(draw::PALETTE[i]),
-                        }
+                let selection = a.sketch.selection();
+                let palette = a.palette.take();
+                if let Some(button) = a.toolbar.hit(self.cursor, kind, fill, palette).filter(|&b| enabled(&a.sketch, b)) {
+                    match button {
+                        Button::Swatch(i) => match palette {
+                            Some(Palette::Stroke) => a.sketch.set_colour(draw::PALETTE[i]),
+                            Some(Palette::Fill) => a.sketch.set_fill_colour(draw::PALETTE[i]),
+                            None => {}
+                        },
+                        Button::Tool(tool) => a.sketch.set_tool(tool),
+                        Button::Undo => a.sketch.undo(),
+                        Button::Redo => a.sketch.redo(),
+                        Button::Pin => return self.pin(),
+                        Button::Copy => return self.copy(),
+                        Button::Save => return self.save(),
+                        Button::Cancel => return Outcome::Cancel,
+                        Button::Colour => a.palette = (palette != Some(Palette::Stroke)).then_some(Palette::Stroke),
+                        Button::FillColour => a.palette = (palette != Some(Palette::Fill)).then_some(Palette::Fill),
+                        Button::Outline => a.sketch.set_fill(false),
+                        Button::Fill => a.sketch.set_fill(true),
+                        Button::Width(i) => a.sketch.set_width(draw::WIDTHS[i]),
+                        Button::Smaller => a.sketch.step(-1),
+                        Button::Larger => a.sketch.step(1),
+                        Button::Bold => a.sketch.toggle_bold(),
+                        Button::Italic => a.sketch.toggle_italic(),
                     }
+                } else if palette.is_some() {
+                } else if let Some(handle) = handle_at(selection, self.cursor, scale) {
+                    a.adjust = Some(Adjust { grip: Grip::Resize(handle), from: self.cursor, start: selection });
+                } else if a.space && contains(selection, self.cursor) {
+                    a.adjust = Some(Adjust { grip: Grip::Move, from: self.cursor, start: selection });
                 } else {
-                    match a.toolbar.hit(self.cursor, kind, fill) {
-                        Some(Button::Tool(tool)) => a.sketch.set_tool(tool),
-                        Some(Button::Save) => return self.save(),
-                        Some(Button::Cancel) => return Outcome::Cancel,
-                        Some(Button::Colour) => a.palette = Some(Palette::Stroke),
-                        Some(Button::FillColour) => a.palette = Some(Palette::Fill),
-                        Some(Button::Outline) => a.sketch.set_fill(false),
-                        Some(Button::Fill) => a.sketch.set_fill(true),
-                        Some(Button::Swatch(_)) => {}
-                        Some(Button::Width(i)) => a.sketch.set_width(draw::WIDTHS[i]),
-                        Some(Button::Smaller) => a.sketch.step(-1),
-                        Some(Button::Larger) => a.sketch.step(1),
-                        Some(Button::Bold) => a.sketch.toggle_bold(),
-                        Some(Button::Italic) => a.sketch.toggle_italic(),
-                        None => a.sketch.press(self.cursor),
-                    }
+                    a.sketch.press(self.cursor);
                 }
                 self.hover_toolbar();
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
-                a.sketch.release(self.cursor, shift);
+                if a.adjust.take().is_some() {
+                    let selection = a.sketch.selection();
+                    let monitor = monitor_of(&self.monitors, selection, self.frame.dimensions());
+                    if let Some(toolbar) = Toolbar::place(selection, monitor, scale, self.vi) {
+                        a.toolbar = toolbar;
+                    }
+                } else {
+                    a.sketch.release(self.cursor, shift);
+                }
                 self.hover_toolbar();
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.logical_key == Key::Named(NamedKey::Space) && !a.sketch.editing() =>
+            {
+                let space = event.state == ElementState::Pressed;
+                if space != a.space {
+                    a.space = space;
+                    self.hover_toolbar();
+                }
+                return Outcome::Pending;
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => return self.key(event),
             WindowEvent::RedrawRequested => return self.draw().map_or(Outcome::Cancel, |_| Outcome::Pending),
@@ -367,6 +460,13 @@ impl Overlay {
         if shortcut("s") {
             return self.save();
         }
+        if shortcut("p") {
+            return self.pin();
+        }
+        if shortcut("c") && !a.sketch.editing() {
+            return self.copy();
+        }
+        let shift = self.modifiers.shift_key();
         let text_tool = a.sketch.options().0 == Tool::Text;
         let named = |key: NamedKey| event.logical_key == Key::Named(key);
         let step = match &event.logical_key {
@@ -374,7 +474,9 @@ impl Overlay {
             Key::Character(c) if !ctrl && c == "]" => Some(1),
             _ => None,
         };
-        if shortcut("z") {
+        if shortcut("y") || (shift && shortcut("z")) {
+            a.sketch.redo();
+        } else if shortcut("z") {
             a.sketch.undo();
         } else if text_tool && shortcut("b") {
             a.sketch.toggle_bold();
@@ -419,10 +521,22 @@ impl Overlay {
         Outcome::Pending
     }
 
-    fn save(&mut self) -> Outcome {
-        let Some(a) = self.annotation.take() else { return Outcome::Cancel };
+    fn finish(&mut self) -> Option<RgbaImage> {
+        let a = self.annotation.take()?;
         self.draw = Some(a.sketch.style());
-        a.sketch.finish().map_or(Outcome::Cancel, |img| Outcome::Save(Shot::Ready(img)))
+        a.sketch.finish()
+    }
+
+    fn save(&mut self) -> Outcome {
+        self.finish().map_or(Outcome::Cancel, |img| Outcome::Save(Shot::Ready(img)))
+    }
+
+    fn copy(&mut self) -> Outcome {
+        self.finish().map_or(Outcome::Cancel, Outcome::Copy)
+    }
+
+    fn pin(&mut self) -> Outcome {
+        self.finish().map_or(Outcome::Cancel, Outcome::Pin)
     }
 
     pub fn hovered(&self) -> Option<isize> {
@@ -468,27 +582,25 @@ impl Overlay {
         for y in 0..h as usize {
             buf[y * sw..y * sw + w].copy_from_slice(&self.dim[y * fw..y * fw + w]);
         }
+        let scale = self.window.scale_factor() as f32;
         if let Some(a) = self.annotation.as_mut() {
             let selection = a.sketch.selection();
             outline(&mut buf, sw, (w as u32, h), selection);
             blit(&mut buf, sw, (w as u32, h), a.sketch.view(), (selection.0, selection.1));
-            let origin = a.toolbar.origin();
+            handles(&mut buf, sw, (w as u32, h), selection, scale);
+            let monitor = monitor_of(&self.monitors, selection, self.frame.dimensions());
+            if let Some((label, at)) = size_tag(&mut a.label, selection, monitor, scale) {
+                blit(&mut buf, sw, (w as u32, h), label, at);
+            }
             let (kind, style) = a.sketch.options();
-            let view = a.toolbar.render(a.sketch.tool(), kind, &style, a.hover, draw::text_available());
-            blit(&mut buf, sw, (w as u32, h), view, origin);
-            match a.palette {
-                Some(target) => {
-                    if let Some((popup, at)) = a.toolbar.palette(target, kind, &style, a.hover) {
-                        blit(&mut buf, sw, (w as u32, h), popup, at);
-                    }
-                }
-                None => {
-                    if let Some(button) = a.hover
-                        && let Some((tip, at)) = a.toolbar.tooltip(button, kind, style.stroke.fill, self.vi)
-                    {
-                        blit(&mut buf, sw, (w as u32, h), tip, at);
-                    }
-                }
+            let sketch = &a.sketch;
+            for (view, at) in a.toolbar.render(sketch.tool(), kind, &style, a.hover, a.palette, &|b| enabled(sketch, b)) {
+                blit(&mut buf, sw, (w as u32, h), view, at);
+            }
+            if let Some(button) = a.hover
+                && let Some((tip, at)) = a.toolbar.tooltip(button, kind, style.stroke.fill, a.palette)
+            {
+                blit(&mut buf, sw, (w as u32, h), tip, at);
             }
             return buf.present().ok();
         }
@@ -518,6 +630,79 @@ fn outline(buf: &mut [u32], stride: usize, (w, h): (u32, u32), (x, y, rw, rh): R
         for row in y0..y1 {
             buf[row as usize * stride + x0 as usize..row as usize * stride + x1 as usize].fill(BORDER);
         }
+    }
+}
+
+fn handles(buf: &mut [u32], stride: usize, (w, h): (u32, u32), selection: Rect, scale: f32) {
+    let size = (HANDLE_SIZE * scale).round() as i32;
+    let ring = SELECTION_BORDER.min(size / 2);
+    for handle in HANDLES {
+        let (x, y) = handle.point(selection);
+        let outer = (x - size / 2, y - size / 2, size, size);
+        let inner = (outer.0 + ring, outer.1 + ring, size - ring * 2, size - ring * 2);
+        for (r, colour) in [(outer, BORDER), (inner, HANDLE_FILL)] {
+            let Some((x0, y0, x1, y1)) = clamp(r, w, h) else { continue };
+            for row in y0..y1 {
+                buf[row as usize * stride + x0 as usize..row as usize * stride + x1 as usize].fill(colour);
+            }
+        }
+    }
+}
+
+fn handle_at(selection: Rect, (x, y): (i32, i32), scale: f32) -> Option<Handle> {
+    let half = (HANDLE_HIT * scale / 2.0).round() as i32;
+    HANDLES.into_iter().find(|h| {
+        let (hx, hy) = h.point(selection);
+        (x - hx).abs() <= half && (y - hy).abs() <= half
+    })
+}
+
+fn adjusted(adjust: Adjust, cursor: (i32, i32), (fw, fh): (u32, u32)) -> Rect {
+    let (fw, fh) = (fw as i32, fh as i32);
+    let (dx, dy) = (cursor.0 - adjust.from.0, cursor.1 - adjust.from.1);
+    let (x, y, w, h) = adjust.start;
+    match adjust.grip {
+        Grip::Move => ((x + dx).clamp(0, (fw - w).max(0)), (y + dy).clamp(0, (fh - h).max(0)), w, h),
+        Grip::Resize(Handle(hx, hy)) => {
+            let (mut l, mut t, mut r, mut b) = (x, y, x + w, y + h);
+            match hx {
+                -1 => l = (l + dx).clamp(0, r - MIN_SELECTION),
+                1 => r = (r + dx).clamp(l + MIN_SELECTION, fw),
+                _ => {}
+            }
+            match hy {
+                -1 => t = (t + dy).clamp(0, b - MIN_SELECTION),
+                1 => b = (b + dy).clamp(t + MIN_SELECTION, fh),
+                _ => {}
+            }
+            (l, t, r - l, b - t)
+        }
+    }
+}
+
+fn monitor_of(monitors: &[Rect], r: Rect, (w, h): (u32, u32)) -> Rect {
+    let centre = (r.0 + r.2 / 2, r.1 + r.3 / 2);
+    monitors.iter().copied().find(|&m| contains(m, centre)).unwrap_or((0, 0, w as i32, h as i32))
+}
+
+fn size_tag(cache: &mut Option<((i32, i32), Pixmap)>, selection: Rect, monitor: Rect, scale: f32) -> Option<(&Pixmap, (i32, i32))> {
+    let (x, y, w, h) = selection;
+    if cache.as_ref().is_none_or(|(size, _)| *size != (w, h)) {
+        *cache = toolbar::tag(&format!("{w} × {h}"), scale).map(|pixmap| ((w, h), pixmap));
+    }
+    let (_, pixmap) = cache.as_ref()?;
+    let gap = (LABEL_GAP * scale).round() as i32;
+    let above = y - gap - pixmap.height() as i32;
+    let at = if above >= monitor.1 { (x.max(monitor.0), above) } else { (x + gap, y + gap) };
+    Some((pixmap, at))
+}
+
+fn enabled(sketch: &Sketch, button: Button) -> bool {
+    match button {
+        Button::Tool(Tool::Text) => draw::text_available(),
+        Button::Undo => sketch.can_undo(),
+        Button::Redo => sketch.can_redo(),
+        _ => true,
     }
 }
 

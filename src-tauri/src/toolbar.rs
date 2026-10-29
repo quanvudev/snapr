@@ -48,6 +48,13 @@ const GLYPH_SMALLER: char = '\u{E8E7}';
 const GLYPH_LARGER: char = '\u{E8E8}';
 const GLYPH_BOLD: char = '\u{E8DD}';
 const GLYPH_ITALIC: char = '\u{E8DB}';
+const GLYPH_UNDO: char = '\u{E7A7}';
+const GLYPH_REDO: char = '\u{E7A6}';
+const GLYPH_COPY: char = '\u{E8C8}';
+const GLYPH_PIN: char = '\u{E718}';
+const RING_WIDTH: f32 = 2.5;
+const FILL_TINT: u8 = 0x90;
+const ROW_GAP: f32 = 4.0;
 const ARROW_ANGLE: f32 = -45.0;
 const TIP_RADIUS: f32 = 4.0;
 const TIP_PAD_X: f32 = 8.0;
@@ -68,13 +75,21 @@ const COLOUR_NAMES: [(&str, &str); 8] = [
 const WIDTH_NAMES: [(&str, &str); 3] =
     [("Thin ([ ])", "Mảnh ([ ])"), ("Medium ([ ])", "Vừa ([ ])"), ("Thick ([ ])", "Dày ([ ])")];
 static ICON_FONT: OnceLock<Option<FontVec>> = OnceLock::new();
-const TOOL_SLOTS: [Slot; 4] = [
+const MAIN_ROW: [Slot; 13] = [
     Slot::Control(Button::Tool(Tool::Rect)),
     Slot::Control(Button::Tool(Tool::Ellipse)),
     Slot::Control(Button::Tool(Tool::Arrow)),
     Slot::Control(Button::Tool(Tool::Text)),
+    Slot::Divider,
+    Slot::Control(Button::Undo),
+    Slot::Control(Button::Redo),
+    Slot::Divider,
+    Slot::Control(Button::Pin),
+    Slot::Control(Button::Copy),
+    Slot::Divider,
+    Slot::Control(Button::Save),
+    Slot::Control(Button::Cancel),
 ];
-const ACTION_SLOTS: [Slot; 3] = [Slot::Divider, Slot::Control(Button::Save), Slot::Control(Button::Cancel)];
 const PALETTE_SLOTS: [Slot; 8] = [
     Slot::Control(Button::Swatch(0)),
     Slot::Control(Button::Swatch(1)),
@@ -91,8 +106,7 @@ const WIDTH_SLOTS: [Slot; 4] = [
     Slot::Control(Button::Width(1)),
     Slot::Control(Button::Width(2)),
 ];
-const TEXT_OPTIONS: [Slot; 7] = [
-    Slot::Divider,
+const TEXT_OPTIONS: [Slot; 6] = [
     Slot::Control(Button::Smaller),
     Slot::Size,
     Slot::Control(Button::Larger),
@@ -121,11 +135,16 @@ impl Palette {
             Palette::Fill => style.stroke.fill_rgb(),
         }
     }
+
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Button {
     Tool(Tool),
+    Undo,
+    Redo,
+    Pin,
+    Copy,
     Save,
     Cancel,
     Swatch(usize),
@@ -147,6 +166,15 @@ enum Slot {
     Size,
 }
 
+impl Slot {
+    fn button(self) -> Option<Button> {
+        match self {
+            Slot::Control(button) => Some(button),
+            Slot::Divider | Slot::Size => None,
+        }
+    }
+}
+
 struct Look {
     rest: Option<[u8; 3]>,
     hover: [u8; 3],
@@ -161,20 +189,25 @@ impl Button {
         }
     }
 
-    fn label(self, vi: bool) -> &'static str {
+    fn label(self, kind: Tool, vi: bool) -> &'static str {
         let (en, vi_label) = match self {
             Button::Tool(Tool::Rect) => ("Rectangle (R)", "Hình chữ nhật (R)"),
             Button::Tool(Tool::Ellipse) => ("Ellipse (C)", "Hình elip (C)"),
             Button::Tool(Tool::Arrow) => ("Arrow (A)", "Mũi tên (A)"),
             Button::Tool(Tool::Text) => ("Text (T)", "Văn bản (T)"),
-            Button::Save => ("Save (Ctrl+S)", "Lưu (Ctrl+S)"),
+            Button::Undo => ("Undo (Ctrl+Z)", "Hoàn tác (Ctrl+Z)"),
+            Button::Redo => ("Redo (Ctrl+Y)", "Làm lại (Ctrl+Y)"),
+            Button::Pin => ("Pin (Ctrl+P)", "Ghim (Ctrl+P)"),
+            Button::Copy => ("Copy (Ctrl+C)", "Sao chép (Ctrl+C)"),
+            Button::Save => ("Done (Enter)", "Xong (Enter)"),
             Button::Cancel => ("Cancel (Esc)", "Hủy (Esc)"),
             Button::Swatch(i) => COLOUR_NAMES[i],
             Button::Width(i) => WIDTH_NAMES[i],
-            Button::Colour => ("Colour", "Màu"),
+            Button::Colour if kind == Tool::Text => ("Text colour", "Màu chữ"),
+            Button::Colour => ("Outline colour", "Màu viền"),
             Button::FillColour => ("Fill colour", "Màu tô"),
-            Button::Outline => ("Outline (F)", "Viền (F)"),
-            Button::Fill => ("Fill (F)", "Tô màu (F)"),
+            Button::Outline => ("Outline only (F)", "Chỉ viền (F)"),
+            Button::Fill => ("Outline and fill (F)", "Viền và tô (F)"),
             Button::Smaller => ("Smaller ([)", "Nhỏ hơn ([)"),
             Button::Larger => ("Larger (])", "Lớn hơn (])"),
             Button::Bold => ("Bold (Ctrl+B)", "Đậm (Ctrl+B)"),
@@ -189,6 +222,10 @@ impl Button {
             Button::Tool(Tool::Ellipse) => Some((GLYPH_ELLIPSE, 0.0)),
             Button::Tool(Tool::Arrow) => Some((GLYPH_ARROW, ARROW_ANGLE)),
             Button::Tool(Tool::Text) => Some((GLYPH_TEXT, 0.0)),
+            Button::Undo => Some((GLYPH_UNDO, 0.0)),
+            Button::Redo => Some((GLYPH_REDO, 0.0)),
+            Button::Pin => Some((GLYPH_PIN, 0.0)),
+            Button::Copy => Some((GLYPH_COPY, 0.0)),
             Button::Save => Some((GLYPH_SAVE, 0.0)),
             Button::Cancel => Some((GLYPH_CANCEL, 0.0)),
             Button::Smaller => Some((GLYPH_SMALLER, 0.0)),
@@ -212,7 +249,11 @@ impl Button {
             Button::Fill => style.stroke.fill,
             Button::Bold => style.text.bold,
             Button::Italic => style.text.italic,
-            Button::Save
+            Button::Undo
+            | Button::Redo
+            | Button::Pin
+            | Button::Copy
+            | Button::Save
             | Button::Cancel
             | Button::Swatch(_)
             | Button::Colour
@@ -244,21 +285,28 @@ fn px(v: f32, scale: f32) -> i32 {
     (v * scale).round() as i32
 }
 
-fn row(kind: Tool, fill: bool) -> Vec<Slot> {
-    let mut row = TOOL_SLOTS.to_vec();
-    row.extend([Slot::Divider, Slot::Control(Button::Colour)]);
-    match kind {
-        Tool::Rect | Tool::Ellipse => {
-            row.extend([Slot::Control(Button::Outline), Slot::Control(Button::Fill)]);
-            if fill {
-                row.push(Slot::Control(Button::FillColour));
-            }
-            row.extend(WIDTH_SLOTS);
-        }
-        Tool::Arrow => row.extend(WIDTH_SLOTS),
-        Tool::Text => row.extend(TEXT_OPTIONS),
+fn options_row(kind: Tool, fill: bool, palette: Option<Palette>) -> Vec<Slot> {
+    if let Some(target) = palette {
+        let mut row = vec![Slot::Control(target.button()), Slot::Divider];
+        row.extend(PALETTE_SLOTS);
+        return row;
     }
-    row.extend(ACTION_SLOTS);
+    let mut row = match kind {
+        Tool::Rect | Tool::Ellipse => {
+            vec![Slot::Control(Button::Outline), Slot::Control(Button::Fill), Slot::Divider, Slot::Control(Button::Colour)]
+        }
+        Tool::Arrow | Tool::Text => vec![Slot::Control(Button::Colour)],
+    };
+    if fill && matches!(kind, Tool::Rect | Tool::Ellipse) {
+        row.push(Slot::Control(Button::FillColour));
+    }
+    match kind {
+        Tool::Text => {
+            row.push(Slot::Divider);
+            row.extend(TEXT_OPTIONS);
+        }
+        _ => row.extend(WIDTH_SLOTS),
+    }
     row
 }
 
@@ -357,7 +405,8 @@ fn content(pixmap: &mut Pixmap, scale: f32, button: Button, centre: Point, alpha
     let radius = FILL_RADIUS * scale;
     match button {
         Button::Swatch(i) => swatch(pixmap, scale, centre, draw::PALETTE[i]),
-        Button::Colour => swatch(pixmap, scale, centre, style.colour(kind)),
+        Button::Colour if kind == Tool::Text => swatch(pixmap, scale, centre, style.colour(kind)),
+        Button::Colour => ring(pixmap, scale, centre, style.stroke.colour, alpha),
         Button::FillColour => {
             let ring = SWATCH_RING * scale;
             let outer = (square.0 - ring, square.1 - ring, size + ring * 2.0, size + ring * 2.0);
@@ -372,7 +421,15 @@ fn content(pixmap: &mut Pixmap, scale: f32, button: Button, centre: Point, alpha
                 pixmap.stroke_path(&path, &draw::paint(rgb, alpha), &stroke, Transform::identity(), None);
             }
         }
-        Button::Fill => fill(pixmap, square, radius, rgb, alpha),
+        Button::Fill => {
+            fill(pixmap, square, radius, rgb, FILL_TINT.min(alpha));
+            let width = OUTLINE_WIDTH * scale;
+            let inset = width / 2.0;
+            if let Some(path) = rounded(square.0 + inset, square.1 + inset, size - width, size - width, radius) {
+                let stroke = Stroke { width, ..Stroke::default() };
+                pixmap.stroke_path(&path, &draw::paint(rgb, alpha), &stroke, Transform::identity(), None);
+            }
+        }
         Button::Width(i) => {
             let thickness = (draw::WIDTHS[i] * scale).min(size);
             let line = (centre.x - size / 2.0, centre.y - thickness / 2.0, size, thickness);
@@ -386,226 +443,239 @@ fn content(pixmap: &mut Pixmap, scale: f32, button: Button, centre: Point, alpha
     }
 }
 
+fn ring(pixmap: &mut Pixmap, scale: f32, centre: Point, rgb: [u8; 3], alpha: u8) {
+    let width = RING_WIDTH * scale;
+    let radius = SWATCH_RADIUS * scale - width / 2.0;
+    if let Some(path) = PathBuilder::from_circle(centre.x, centre.y, radius) {
+        let stroke = Stroke { width, ..Stroke::default() };
+        pixmap.stroke_path(&path, &draw::paint(rgb, alpha), &stroke, Transform::identity(), None);
+    }
+}
+
 fn swatch(pixmap: &mut Pixmap, scale: f32, centre: Point, rgb: [u8; 3]) {
     let radius = SWATCH_RADIUS * scale;
     circle(pixmap, centre, radius + SWATCH_RING * scale, BORDER);
     circle(pixmap, centre, radius, rgb);
 }
 
-pub struct Toolbar {
-    rect: Rect,
-    monitor: Rect,
-    scale: f32,
-    pad: i32,
-    base: Pixmap,
-    base_row: Vec<Slot>,
-    pixmap: Pixmap,
-    tip: Option<(Button, Rect, Pixmap, (i32, i32))>,
-    popup: Option<(PopupKey, Pixmap, (i32, i32))>,
+fn size_label(pixmap: &mut Pixmap, scale: f32, centre: Point, value: f32) {
+    let Some(face) = draw::font() else { return };
+    let label = format!("{value}");
+    let size = SIZE_TEXT * scale;
+    let (w, h) = draw::measure(face, size, &label);
+    let at = Point::from_xy(centre.x - w / 2.0, centre.y - h / 2.0);
+    draw::text(pixmap, face, at, &[label], size, ICON, None);
 }
 
-#[derive(Clone, Copy, PartialEq)]
-struct PopupKey {
-    target: Palette,
+fn paint_row(pixmap: &mut Pixmap, slots: &[(Slot, Rect)], (w, h): (i32, i32), pad: f32, scale: f32) {
+    pixmap.fill(Color::TRANSPARENT);
+    paint_panel(pixmap, (pad, pad, w as f32, h as f32), scale);
+    let line = px(DIVIDER_WIDTH, scale).max(1) as f32;
+    for &(_, (x, y, sw, sh)) in slots.iter().filter(|&&(slot, _)| slot == Slot::Divider) {
+        let mid = pad + x as f32 + sw as f32 / 2.0;
+        fill(pixmap, (mid - line / 2.0, pad + y as f32, line, sh as f32), 0.0, BORDER, u8::MAX);
+    }
+}
+
+struct Scene<'a> {
+    tool: Tool,
     kind: Tool,
-    fill: bool,
-    chosen: [u8; 3],
+    style: &'a Style,
     hover: Option<Button>,
+    enabled: &'a dyn Fn(Button) -> bool,
+    palette: Option<Palette>,
+}
+
+fn paint_slots(pixmap: &mut Pixmap, slots: &[(Slot, Rect)], pad: f32, scale: f32, scene: &Scene) {
+    for &(slot, (x, y, w, h)) in slots {
+        let rect = (x as f32 + pad, y as f32 + pad, w as f32, h as f32);
+        let state = |button: Button| {
+            let enabled = (scene.enabled)(button);
+            let current = match (button, scene.palette) {
+                (Button::Swatch(i), Some(target)) => draw::PALETTE[i] == target.colour(scene.kind, scene.style),
+                (_, Some(target)) => button == target.button(),
+                _ => button.current(scene.tool, scene.style),
+            };
+            State {
+                hovered: enabled && scene.hover == Some(button),
+                current,
+                alpha: if enabled { u8::MAX } else { DISABLED_ALPHA },
+            }
+        };
+        match slot {
+            Slot::Divider => {}
+            Slot::Size => {
+                let centre = Point::from_xy(rect.0 + rect.2 / 2.0, rect.1 + rect.3 / 2.0);
+                size_label(pixmap, scale, centre, scene.style.text.size);
+            }
+            Slot::Control(button) => paint_control(pixmap, scale, button, rect, state(button), scene.style, scene.kind),
+        }
+    }
+}
+
+fn offset(slots: Vec<(Slot, Rect)>, (x, y): (i32, i32)) -> Vec<(Slot, Rect)> {
+    slots.into_iter().map(|(slot, (sx, sy, sw, sh))| (slot, (sx + x, sy + y, sw, sh))).collect()
+}
+
+pub fn tag(label: &str, scale: f32) -> Option<Pixmap> {
+    let face = draw::font()?;
+    let size = TIP_TEXT * scale;
+    let (text_w, text_h) = draw::measure(face, size, label);
+    let (pad_x, pad_y) = (TIP_PAD_X * scale, TIP_PAD_Y * scale);
+    let (w, h) = ((text_w + pad_x * 2.0).ceil(), (text_h + pad_y * 2.0).ceil());
+    let mut pixmap = Pixmap::new(w as u32, h as u32)?;
+    let (radius, border) = (TIP_RADIUS * scale, BORDER_WIDTH * scale);
+    fill(&mut pixmap, (0.0, 0.0, w, h), radius, BORDER, u8::MAX);
+    fill(&mut pixmap, (border, border, w - border * 2.0, h - border * 2.0), radius - border, PANEL, u8::MAX);
+    draw::text(&mut pixmap, face, Point::from_xy(pad_x, pad_y), &[label.to_string()], size, TIP_TEXT_COLOUR, None);
+    Some(pixmap)
+}
+
+pub struct Toolbar {
+    main: Rect,
+    down: bool,
+    monitor: Rect,
+    scale: f32,
+    vi: bool,
+    pad: i32,
+    main_base: Pixmap,
+    main_pixmap: Pixmap,
+    options_base: Pixmap,
+    options_row: Vec<Slot>,
+    options_pixmap: Pixmap,
+    tip: Option<(Button, Rect, Pixmap, (i32, i32))>,
 }
 
 impl Toolbar {
-    pub fn place(selection: Rect, monitor: Rect, scale: f32) -> Option<Self> {
-        let w = [(Tool::Rect, true), (Tool::Text, false)]
+    pub fn place(selection: Rect, monitor: Rect, scale: f32, vi: bool) -> Option<Self> {
+        let (main_slots, w) = layout(&MAIN_ROW, scale);
+        let kinds = [Tool::Rect, Tool::Ellipse, Tool::Arrow, Tool::Text];
+        let palettes = [None, Some(Palette::Stroke), Some(Palette::Fill)];
+        let options_w = kinds
             .into_iter()
-            .map(|(kind, fill)| layout(&row(kind, fill), scale).1)
+            .flat_map(|kind| palettes.into_iter().map(move |palette| (kind, palette)))
+            .map(|(kind, palette)| layout(&options_row(kind, true, palette), scale).1)
             .max()?;
         let h = px(PADDING * 2.0 + BUTTON, scale);
+        let total = h * 2 + px(ROW_GAP, scale);
         let margin = px(MARGIN, scale);
         let (sx, sy, sw, sh) = selection;
         let (mx, my, mw, mh) = monitor;
-        let below = sy + sh + margin;
-        let above = sy - margin - h;
-        let y = if below + h <= my + mh {
-            below
-        } else if above >= my {
-            above
+        let (y, down) = if sy + sh + margin + total <= my + mh {
+            (sy + sh + margin, true)
+        } else if sy - margin - total >= my {
+            (sy - margin - h, false)
         } else {
-            sy + margin
+            (sy + margin, true)
         };
         let fit = |v: i32, lo: i32, room: i32| v.min(lo + room).max(lo);
-        let x = fit(sx + sw - w, mx, mw - w);
+        let x = fit(sx + sw / 2 - w / 2, mx, mw - w);
         let y = fit(y, my, mh - h);
         let pad = px(SHADOW_SPREAD + SHADOW_OFFSET, scale);
-        let size = ((w + pad * 2) as u32, (h + pad * 2) as u32);
+        let mut main_base = Pixmap::new((w + pad * 2) as u32, (h + pad * 2) as u32)?;
+        paint_row(&mut main_base, &main_slots, (w, h), pad as f32, scale);
+        let options = ((options_w + pad * 2) as u32, (h + pad * 2) as u32);
         Some(Self {
-            rect: (x, y, w, h),
+            main: (x, y, w, h),
+            down,
             monitor,
             scale,
+            vi,
             pad,
-            base: Pixmap::new(size.0, size.1)?,
-            base_row: Vec::new(),
-            pixmap: Pixmap::new(size.0, size.1)?,
+            main_pixmap: main_base.clone(),
+            main_base,
+            options_base: Pixmap::new(options.0, options.1)?,
+            options_row: Vec::new(),
+            options_pixmap: Pixmap::new(options.0, options.1)?,
             tip: None,
-            popup: None,
         })
     }
 
-    pub fn origin(&self) -> (i32, i32) {
-        (self.rect.0 - self.pad, self.rect.1 - self.pad)
+    fn options(&self, kind: Tool, fill: bool, palette: Option<Palette>) -> Option<(Rect, Vec<(Slot, Rect)>)> {
+        let row = options_row(kind, fill, palette);
+        if row.is_empty() {
+            return None;
+        }
+        let (slots, w) = layout(&row, self.scale);
+        let (mx, _, mw, _) = self.monitor;
+        let (x, y, _, h) = self.main;
+        let gap = px(ROW_GAP, self.scale);
+        let y = if self.down { y + h + gap } else { y - gap - h };
+        Some(((x.min(mx + mw - w).max(mx), y, w, h), slots))
     }
 
-    fn panel(&self, kind: Tool, fill: bool) -> (Rect, Vec<(Slot, Rect)>) {
-        let (slots, w) = layout(&row(kind, fill), self.scale);
-        let x = self.rect.2 - w;
-        let slots = slots.into_iter().map(|(slot, (sx, sy, sw, sh))| (slot, (sx + x, sy, sw, sh))).collect();
-        ((x, 0, w, self.rect.3), slots)
+    fn slots(&self, kind: Tool, fill: bool, palette: Option<Palette>) -> Vec<(Slot, Rect)> {
+        let (x, y, ..) = self.main;
+        let mut slots = offset(layout(&MAIN_ROW, self.scale).0, (x, y));
+        if let Some(((ox, oy, ..), row)) = self.options(kind, fill, palette) {
+            slots.extend(offset(row, (ox, oy)));
+        }
+        slots
     }
 
-    fn slot(&self, button: Button, kind: Tool, fill: bool) -> Option<Rect> {
-        self.panel(kind, fill).1.into_iter().find(|&(slot, _)| slot == Slot::Control(button)).map(|(_, r)| r)
+    fn block(&self, kind: Tool, fill: bool, palette: Option<Palette>) -> (i32, i32) {
+        let (_, y, _, h) = self.main;
+        match self.options(kind, fill, palette) {
+            Some(((_, oy, _, oh), _)) => (y.min(oy), (y + h).max(oy + oh)),
+            None => (y, y + h),
+        }
     }
 
-    pub fn hit(&self, (x, y): (i32, i32), kind: Tool, fill: bool) -> Option<Button> {
-        let p = (x - self.rect.0, y - self.rect.1);
-        self.panel(kind, fill).1.into_iter().find_map(|(slot, r)| match slot {
-            Slot::Control(button) if overlay::contains(r, p) => Some(button),
-            _ => None,
-        })
+    pub fn hit(&self, at: (i32, i32), kind: Tool, fill: bool, palette: Option<Palette>) -> Option<Button> {
+        self.slots(kind, fill, palette).into_iter().find_map(|(slot, r)| slot.button().filter(|_| overlay::contains(r, at)))
     }
 
-    fn popup_at(&self, anchor: Rect, (w, h): (i32, i32)) -> (i32, i32) {
-        let (bx, _, bw, _) = anchor;
-        let (mx, my, mw, mh) = self.monitor;
-        let gap = px(TIP_GAP, self.scale);
-        let x = (self.rect.0 + bx + bw / 2 - w / 2).min(mx + mw - w).max(mx);
-        let below = self.rect.1 + self.rect.3 + gap;
-        let y = if below + h <= my + mh { below } else { self.rect.1 - gap - h };
-        (x, y)
-    }
-
-    pub fn tooltip(&mut self, button: Button, kind: Tool, fill: bool, vi: bool) -> Option<(&Pixmap, (i32, i32))> {
-        let slot = self.slot(button, kind, fill)?;
+    pub fn tooltip(&mut self, button: Button, kind: Tool, fill: bool, palette: Option<Palette>) -> Option<(&Pixmap, (i32, i32))> {
+        let slot = self
+            .slots(kind, fill, palette)
+            .into_iter()
+            .find(|&(slot, _)| slot.button() == Some(button))
+            .map(|(_, r)| r)?;
         if self.tip.as_ref().is_none_or(|t| t.0 != button || t.1 != slot) {
-            self.tip = self.render_tip(button, slot, vi);
+            self.tip = tag(button.label(kind, self.vi), self.scale).map(|pixmap| {
+                let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
+                let (bx, _, bw, _) = slot;
+                let (mx, my, mw, mh) = self.monitor;
+                let gap = px(TIP_GAP, self.scale);
+                let (top, bottom) = self.block(kind, fill, palette);
+                let (below, above) = (bottom + gap, top - gap - h);
+                let y = match (self.down, below + h <= my + mh, above >= my) {
+                    (true, true, _) | (false, _, false) => below,
+                    _ => above,
+                };
+                let at = ((bx + bw / 2 - w / 2).min(mx + mw - w).max(mx), y.min(my + mh - h).max(my));
+                (button, slot, pixmap, at)
+            });
         }
         self.tip.as_ref().map(|(_, _, pixmap, at)| (pixmap, *at))
     }
 
-    fn render_tip(&self, button: Button, slot: Rect, vi: bool) -> Option<(Button, Rect, Pixmap, (i32, i32))> {
-        let face = draw::font()?;
-        let label = button.label(vi);
-        let size = TIP_TEXT * self.scale;
-        let (text_w, text_h) = draw::measure(face, size, label);
-        let (pad_x, pad_y) = (TIP_PAD_X * self.scale, TIP_PAD_Y * self.scale);
-        let (w, h) = ((text_w + pad_x * 2.0).ceil(), (text_h + pad_y * 2.0).ceil());
-        let mut pixmap = Pixmap::new(w as u32, h as u32)?;
-        let (radius, border) = (TIP_RADIUS * self.scale, BORDER_WIDTH * self.scale);
-        fill(&mut pixmap, (0.0, 0.0, w, h), radius, BORDER, u8::MAX);
-        fill(&mut pixmap, (border, border, w - border * 2.0, h - border * 2.0), radius - border, PANEL, u8::MAX);
-        draw::text(&mut pixmap, face, Point::from_xy(pad_x, pad_y), &[label.to_string()], size, TIP_TEXT_COLOUR, None);
-        let at = self.popup_at(slot, (w as i32, h as i32));
-        Some((button, slot, pixmap, at))
-    }
-
-    fn popup(&self, target: Palette, kind: Tool, fill: bool) -> Option<(Rect, Vec<(Slot, Rect)>)> {
-        let anchor = self.slot(target.button(), kind, fill)?;
-        let (slots, w) = layout(&PALETTE_SLOTS, self.scale);
-        let h = px(PADDING * 2.0 + BUTTON, self.scale);
-        let (x, y) = self.popup_at(anchor, (w, h));
-        Some(((x, y, w, h), slots))
-    }
-
-    pub fn palette(
+    pub fn render(
         &mut self,
-        target: Palette,
+        tool: Tool,
         kind: Tool,
         style: &Style,
         hover: Option<Button>,
-    ) -> Option<(&Pixmap, (i32, i32))> {
-        let key = PopupKey {
-            target,
-            kind,
-            fill: style.stroke.fill,
-            chosen: target.colour(kind, style),
-            hover,
+        palette: Option<Palette>,
+        enabled: &dyn Fn(Button) -> bool,
+    ) -> Vec<(&Pixmap, (i32, i32))> {
+        let scene = Scene { tool, kind, style, hover, enabled, palette };
+        let pad = self.pad as f32;
+        self.main_pixmap.data_mut().copy_from_slice(self.main_base.data());
+        paint_slots(&mut self.main_pixmap, &layout(&MAIN_ROW, self.scale).0, pad, self.scale, &scene);
+        let main_at = (self.main.0 - self.pad, self.main.1 - self.pad);
+        let fill = style.stroke.fill;
+        let Some(((ox, oy, ow, oh), slots)) = self.options(kind, fill, palette) else {
+            return vec![(&self.main_pixmap, main_at)];
         };
-        if self.popup.as_ref().is_none_or(|p| p.0 != key) {
-            self.popup = self.render_palette(key, style).map(|(pixmap, at)| (key, pixmap, at));
+        let row = options_row(kind, fill, palette);
+        if self.options_row != row {
+            paint_row(&mut self.options_base, &slots, (ow, oh), pad, self.scale);
+            self.options_row = row;
         }
-        self.popup.as_ref().map(|(_, pixmap, at)| (pixmap, *at))
-    }
-
-    fn render_palette(&self, key: PopupKey, style: &Style) -> Option<(Pixmap, (i32, i32))> {
-        let PopupKey { target, kind, chosen, hover, .. } = key;
-        let ((x, y, w, h), slots) = self.popup(target, kind, style.stroke.fill)?;
-        let size = ((w + self.pad * 2) as u32, (h + self.pad * 2) as u32);
-        let mut pixmap = Pixmap::new(size.0, size.1)?;
-        let pad = self.pad as f32;
-        paint_panel(&mut pixmap, (pad, pad, w as f32, h as f32), self.scale);
-        for (slot, (sx, sy, sw, sh)) in slots {
-            if let Slot::Control(button @ Button::Swatch(i)) = slot {
-                let state = State { hovered: hover == Some(button), current: draw::PALETTE[i] == chosen, alpha: u8::MAX };
-                let rect = (sx as f32 + pad, sy as f32 + pad, sw as f32, sh as f32);
-                paint_control(&mut pixmap, self.scale, button, rect, state, style, kind);
-            }
-        }
-        Some((pixmap, (x - self.pad, y - self.pad)))
-    }
-
-    pub fn palette_hit(&self, (x, y): (i32, i32), target: Palette, kind: Tool, fill: bool) -> Option<usize> {
-        let ((px, py, ..), slots) = self.popup(target, kind, fill)?;
-        slots.into_iter().find_map(|(slot, r)| match slot {
-            Slot::Control(Button::Swatch(i)) if overlay::contains(r, (x - px, y - py)) => Some(i),
-            _ => None,
-        })
-    }
-
-    fn paint_base(&mut self, kind: Tool, filled: bool) {
-        self.base.fill(Color::TRANSPARENT);
-        let pad = self.pad as f32;
-        let line = px(DIVIDER_WIDTH, self.scale).max(1) as f32;
-        let ((x, y, w, h), slots) = self.panel(kind, filled);
-        paint_panel(&mut self.base, (x as f32 + pad, y as f32 + pad, w as f32, h as f32), self.scale);
-        for (_, (dx, dy, dw, dh)) in slots.into_iter().filter(|&(slot, _)| slot == Slot::Divider) {
-            let mid = pad + dx as f32 + dw as f32 / 2.0;
-            fill(&mut self.base, (mid - line / 2.0, pad + dy as f32, line, dh as f32), 0.0, BORDER, u8::MAX);
-        }
-        self.base_row = row(kind, filled);
-    }
-
-    pub fn render(&mut self, tool: Tool, kind: Tool, style: &Style, hover: Option<Button>, text_enabled: bool) -> &Pixmap {
-        let filled = style.stroke.fill;
-        if self.base_row != row(kind, filled) {
-            self.paint_base(kind, filled);
-        }
-        self.pixmap.data_mut().copy_from_slice(self.base.data());
-        let pad = self.pad as f32;
-        for (slot, (x, y, w, h)) in self.panel(kind, filled).1 {
-            let (x, y, w, h) = (x as f32 + pad, y as f32 + pad, w as f32, h as f32);
-            match slot {
-                Slot::Divider => {}
-                Slot::Size => self.size_label(Point::from_xy(x + w / 2.0, y + h / 2.0), style.text.size),
-                Slot::Control(button) => {
-                    let enabled = text_enabled || button != Button::Tool(Tool::Text);
-                    let state = State {
-                        hovered: enabled && hover == Some(button),
-                        current: button.current(tool, style),
-                        alpha: if enabled { u8::MAX } else { DISABLED_ALPHA },
-                    };
-                    paint_control(&mut self.pixmap, self.scale, button, (x, y, w, h), state, style, kind);
-                }
-            }
-        }
-        &self.pixmap
-    }
-
-    fn size_label(&mut self, centre: Point, value: f32) {
-        let Some(face) = draw::font() else { return };
-        let label = format!("{value}");
-        let size = SIZE_TEXT * self.scale;
-        let (w, h) = draw::measure(face, size, &label);
-        let at = Point::from_xy(centre.x - w / 2.0, centre.y - h / 2.0);
-        draw::text(&mut self.pixmap, face, at, &[label], size, ICON, None);
+        self.options_pixmap.data_mut().copy_from_slice(self.options_base.data());
+        paint_slots(&mut self.options_pixmap, &slots, pad, self.scale, &scene);
+        vec![(&self.main_pixmap, main_at), (&self.options_pixmap, (ox - self.pad, oy - self.pad))]
     }
 }
 

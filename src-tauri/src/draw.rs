@@ -398,7 +398,7 @@ fn text_box(pixmap: &mut Pixmap, at: Point, lines: &[String], style: &TextStyle,
 #[derive(Clone, Copy)]
 enum Drag {
     Draw { from: Point, to: Point },
-    Move { index: usize, start: Point, last: Point },
+    Move { index: usize, last: Point, moved: bool },
 }
 
 pub struct Sketch {
@@ -408,6 +408,7 @@ pub struct Sketch {
     style: Style,
     shapes: Vec<Shape>,
     history: Vec<Vec<Shape>>,
+    redo: Vec<Vec<Shape>>,
     selected: Option<usize>,
     drag: Option<Drag>,
     text: Option<(Point, Vec<String>)>,
@@ -430,6 +431,7 @@ impl Sketch {
             style,
             shapes: Vec::new(),
             history: Vec::new(),
+            redo: Vec::new(),
             selected: None,
             drag: None,
             text: None,
@@ -442,6 +444,34 @@ impl Sketch {
 
     pub fn selection(&self) -> overlay::Rect {
         self.selection
+    }
+
+    pub fn reselect(&mut self, frame: &RgbaImage, selection: overlay::Rect) -> Option<()> {
+        let crop = overlay::crop(frame, selection)?;
+        let size = IntSize::from_wh(crop.width(), crop.height())?;
+        let background = crop.into_raw();
+        self.base = Pixmap::from_vec(background.clone(), size)?;
+        self.view = self.base.clone();
+        self.background = background;
+        let (dx, dy) = ((self.selection.0 - selection.0) as f32, (self.selection.1 - selection.1) as f32);
+        let shift = |p: &mut Point| *p = Point::from_xy(p.x + dx, p.y + dy);
+        for shape in self.shapes.iter_mut().chain(self.history.iter_mut().chain(self.redo.iter_mut()).flatten()) {
+            shape.translate(dx, dy);
+        }
+        if let Some((at, _)) = self.text.as_mut() {
+            shift(at);
+        }
+        match self.drag.as_mut() {
+            Some(Drag::Draw { from, to }) => {
+                shift(from);
+                shift(to);
+            }
+            Some(Drag::Move { last, .. }) => shift(last),
+            None => {}
+        }
+        self.selection = selection;
+        self.dirty = true;
+        Some(())
     }
 
     pub fn tool(&self) -> Tool {
@@ -465,11 +495,14 @@ impl Sketch {
 
     fn restyle(&mut self, stroke: impl FnOnce(&mut StrokeStyle), text: impl FnOnce(&mut TextStyle)) {
         let (kind, mut style) = self.options();
+        let before = (style.stroke, style.text);
         match kind {
             Tool::Text => text(&mut style.text),
             _ => stroke(&mut style.stroke),
         }
-        if let Some(i) = self.selected {
+        if let Some(i) = self.selected
+            && before != (style.stroke, style.text)
+        {
             self.snapshot();
             self.shapes[i].restyle(&style);
             self.dirty = true;
@@ -534,9 +567,8 @@ impl Sketch {
         let p = self.local(at);
         if let Some(index) = self.shape_at(p) {
             self.commit_text();
-            self.snapshot();
             self.selected = Some(index);
-            self.drag = Some(Drag::Move { index, start: p, last: p });
+            self.drag = Some(Drag::Move { index, last: p, moved: false });
             return;
         }
         self.selected = None;
@@ -550,11 +582,20 @@ impl Sketch {
 
     pub fn drag_to(&mut self, at: (i32, i32), shift: bool) -> bool {
         let p = self.local(at);
-        match self.drag.as_mut() {
-            Some(Drag::Draw { from, to }) => *to = if shift { constrain(self.tool, *from, p) } else { p },
-            Some(Drag::Move { index, last, .. }) => {
-                self.shapes[*index].translate(p.x - last.x, p.y - last.y);
-                *last = p;
+        match self.drag {
+            Some(Drag::Draw { from, .. }) => {
+                let to = if shift { constrain(self.tool, from, p) } else { p };
+                self.drag = Some(Drag::Draw { from, to });
+            }
+            Some(Drag::Move { index, last, moved }) => {
+                if p == last {
+                    return false;
+                }
+                if !moved {
+                    self.snapshot();
+                }
+                self.shapes[index].translate(p.x - last.x, p.y - last.y);
+                self.drag = Some(Drag::Move { index, last: p, moved: true });
                 self.dirty = true;
             }
             None => return false,
@@ -564,18 +605,11 @@ impl Sketch {
 
     pub fn release(&mut self, at: (i32, i32), shift: bool) {
         self.drag_to(at, shift);
-        match self.drag.take() {
-            Some(Drag::Draw { from, to }) => {
-                if from.distance(to) >= MIN_DRAG
-                    && let Some(shape) = Shape::drawn(self.tool, from, to, self.style.stroke)
-                {
-                    self.push(shape);
-                }
-            }
-            Some(Drag::Move { start, last, .. }) if start == last => {
-                self.history.pop();
-            }
-            Some(Drag::Move { .. }) | None => {}
+        if let Some(Drag::Draw { from, to }) = self.drag.take()
+            && from.distance(to) >= MIN_DRAG
+            && let Some(shape) = Shape::drawn(self.tool, from, to, self.style.stroke)
+        {
+            self.push(shape);
         }
     }
 
@@ -609,17 +643,39 @@ impl Sketch {
     }
 
     pub fn undo(&mut self) {
-        if self.text.take().is_some() {
+        if self.drag.is_some() || self.text.take().is_some() {
             return;
         }
         if let Some(shapes) = self.history.pop() {
-            self.shapes = shapes;
+            self.redo.push(std::mem::replace(&mut self.shapes, shapes));
             self.selected = self.selected.filter(|&i| i < self.shapes.len());
             self.dirty = true;
         }
     }
 
+    pub fn redo(&mut self) {
+        if self.drag.is_some() || self.text.is_some() {
+            return;
+        }
+        if let Some(shapes) = self.redo.pop() {
+            self.history.push(std::mem::replace(&mut self.shapes, shapes));
+            self.selected = self.selected.filter(|&i| i < self.shapes.len());
+            self.dirty = true;
+        }
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.text.is_some() || !self.history.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.text.is_none() && !self.redo.is_empty()
+    }
+
     pub fn delete(&mut self) {
+        if self.drag.is_some() {
+            return;
+        }
         if let Some(i) = self.selected.take() {
             self.snapshot();
             self.shapes.remove(i);
@@ -641,6 +697,7 @@ impl Sketch {
 
     fn snapshot(&mut self) {
         self.history.push(self.shapes.clone());
+        self.redo.clear();
     }
 
     fn push(&mut self, shape: Shape) {

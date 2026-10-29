@@ -444,6 +444,23 @@ impl ApplicationHandler<Action> for Snap {
                 self.mode = Mode::Shot;
                 self.pins.show_capture();
             }
+            Outcome::Copy(img) => {
+                self.overlay = None;
+                self.mode = Mode::Shot;
+                self.pins.show_capture();
+                if let Err(e) = capture::copy(&img) {
+                    tooltip(&self.app, &format!("Snapr: {e}"));
+                }
+            }
+            Outcome::Pin(img) => {
+                self.overlay = None;
+                self.mode = Mode::Shot;
+                self.pins.show_capture();
+                let ocr = self.app.state::<State>().ocr.load(Ordering::Relaxed);
+                if let Err(e) = self.pins.add(event_loop, img, ocr) {
+                    tooltip(&self.app, &format!("Snapr: {e}"));
+                }
+            }
             Outcome::Save(shot) => {
                 self.overlay = None;
                 match (std::mem::replace(&mut self.mode, Mode::Shot), shot) {

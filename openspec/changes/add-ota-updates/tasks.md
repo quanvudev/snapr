@@ -47,7 +47,7 @@
 
 ## 7. End-to-end verification
 
-- [ ] 7.1 Release 1.6.0 through the workflow; verify the release has the installer, `.sig` and `latest.json`, and `releases/latest/download/latest.json` serves 1.6.0
+- [x] 7.1 Release 1.6.0 through the workflow; verify the release has the installer, `.sig` and `latest.json`, and `releases/latest/download/latest.json` serves 1.6.0
 - [ ] 7.2 Install 1.6.0 by hand with Start with Windows on, then release 1.6.1; verify the notification and tray item appear, Update installs with no UAC, snapr restarts on 1.6.1 with settings, captures, Paddle models and Start with Windows intact
 
 ## Workflow follow-up

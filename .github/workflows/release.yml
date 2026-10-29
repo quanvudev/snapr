@@ -1,8 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Release notes (defaults to "Snapr v<version>")
+        required: false
+        default: ""
 
 jobs:
   release:
@@ -11,14 +15,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Check version
+        id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           conf=$(jq -r .version src-tauri/tauri.conf.json)
           pkg=$(jq -r .version package.json)
           cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
-          echo "tag=$tag tauri.conf=$conf package=$pkg cargo=$cargo"
-          [ "$tag" = "$conf" ] && [ "$tag" = "$pkg" ] && [ "$tag" = "$cargo" ]
+          echo "tauri.conf=$conf package=$pkg cargo=$cargo"
+          [ "$conf" = "$pkg" ] && [ "$conf" = "$cargo" ]
+          if gh release view "v$conf" -R quanvudev/snapr-releases >/dev/null 2>&1; then
+            echo "v$conf is already released on quanvudev/snapr-releases"
+            exit 1
+          fi
+          echo "tag=v$conf" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
 
@@ -39,8 +50,9 @@ jobs:
           tauriScript: bunx tauri
           owner: quanvudev
           repo: snapr-releases
-          tagName: ${{ github.ref_name }}
-          releaseName: Snapr ${{ github.ref_name }}
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: Snapr ${{ steps.version.outputs.tag }}
+          releaseBody: ${{ inputs.notes || format('Snapr {0}', steps.version.outputs.tag) }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
