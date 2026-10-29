@@ -2,6 +2,18 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.7.0] - 2026-10-29
+
+### Added
+- Draw capture: the selected area stays editable. Drag the handles on its corners and edges to resize it, or hold Space and drag inside it to move it. Shapes you already drew stay where they are on screen.
+- Draw capture: the area's size in pixels is shown next to it while you edit.
+- Draw capture: Redo (Ctrl+Y or Ctrl+Shift+Z) and Undo / Redo buttons on the toolbar, dimmed when there is nothing to undo or redo.
+- Draw capture: Copy (Ctrl+C) puts the annotated image on the clipboard and Pin (Ctrl+P) pins it on screen, both without saving a file.
+
+### Changed
+- Draw capture: the toolbar is now two rows centred under the area. The main row (tools, Undo / Redo, Pin / Copy, Done / Cancel) never moves; the second row holds the options for the current tool.
+- Draw capture: outline and fill colours have their own buttons (a ring for the outline, a square for the fill), and the colour palette opens in place of the options row instead of a separate popup.
+
 ## [1.6.0] - 2026-10-29
 
 ### Breaking
