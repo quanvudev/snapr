@@ -22,7 +22,7 @@ export function Settings() {
   const { cfg, t, failed, version, section, setSection } = useSettingsContext();
   const sections = SECTIONS.filter((s) => s.id !== "ring" || cfg.ring.enabled);
   const current = sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "settings")!;
-  const { component: Active, wide } = current;
+  const { component: Active, wide, fill } = current;
 
   return (
     <SidebarProvider className="h-screen min-h-0 text-sm has-data-[variant=inset]:bg-transparent">
@@ -55,12 +55,19 @@ export function Settings() {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mx-2 data-vertical:h-4 data-vertical:self-center" />
         </TitleBar>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className={`mx-auto space-y-4 p-6 ${wide ? "" : "max-w-3xl"}`}>
+        {fill ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <Active />
-            {failed && <p className="text-xs text-red-500">{t.failed}</p>}
+            {failed && <p className="px-6 pb-2 text-xs text-red-500">{t.failed}</p>}
           </div>
-        </ScrollArea>
+        ) : (
+          <ScrollArea className="min-h-0 flex-1">
+            <div className={`mx-auto space-y-4 p-6 ${wide ? "" : "max-w-3xl"}`}>
+              <Active />
+              {failed && <p className="text-xs text-red-500">{t.failed}</p>}
+            </div>
+          </ScrollArea>
+        )}
       </SidebarInset>
     </SidebarProvider>
   );

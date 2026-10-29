@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
+import { Copy, Pin, Trash2 } from "lucide-react";
 import type { MouseEvent, PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions } from "@/hooks/use-gallery";
 import type { GalleryItem as Item } from "@/lib/api";
 import { fileName, isViewable } from "@/lib/gallery";
@@ -13,7 +15,7 @@ import { Thumb } from "./thumb";
 type Props = {
   item: Item;
   actions: GalleryActions;
-  onOpen: () => void;
+  onOpen: (from: DOMRect) => void;
   selectMode: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -22,6 +24,7 @@ type Props = {
 };
 
 export function GalleryItem({ item, actions, onOpen, selectMode, selected, onSelect, onRange, onLongPress }: Props) {
+  const { t } = useSettingsContext();
   const timer = useRef<number | null>(null);
   const long = useRef(false);
   const origin = useRef<{ x: number; y: number } | null>(null);
@@ -73,19 +76,21 @@ export function GalleryItem({ item, actions, onOpen, selectMode, selected, onSel
       onSelect();
       return;
     }
-    if (isViewable(item)) onOpen();
+    if (isViewable(item)) onOpen(event.currentTarget.getBoundingClientRect());
   };
+
+  const photo = item.kind === "photo";
 
   return (
     <ContextMenu>
-      <div className="relative">
+      <div className="group/tile relative">
         <ContextMenuTrigger
           render={
             <Button
               variant="ghost"
               title={fileName(item.path)}
               className={cn(
-                "relative aspect-square h-auto w-full overflow-hidden bg-muted p-0",
+                "relative aspect-video h-auto w-full overflow-hidden bg-muted p-0",
                 selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
               )}
               onClick={click}
@@ -104,9 +109,29 @@ export function GalleryItem({ item, actions, onOpen, selectMode, selected, onSel
             </span>
           )}
         </ContextMenuTrigger>
-        {selectMode && (
-          <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-md bg-background/90 p-0.5 shadow-sm">
-            <Checkbox checked={selected} tabIndex={-1} aria-hidden="true" />
+        <span
+          className={cn(
+            "absolute top-1.5 left-1.5 z-10 flex rounded-md bg-background/90 p-1 shadow-sm transition-opacity",
+            selectMode || selected ? "opacity-100" : "opacity-0 group-hover/tile:opacity-100",
+          )}
+        >
+          <Checkbox checked={selected} onCheckedChange={onSelect} />
+        </span>
+        {!selectMode && (
+          <span className="absolute top-1.5 right-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover/tile:opacity-100">
+            {photo && (
+              <>
+                <Button variant="secondary" size="icon-xs" title={t.copyImage} onClick={() => actions.copy(item)}>
+                  <Copy />
+                </Button>
+                <Button variant="secondary" size="icon-xs" title={t.pinImage} onClick={() => actions.pin(item)}>
+                  <Pin />
+                </Button>
+              </>
+            )}
+            <Button variant="secondary" size="icon-xs" title={t.deleteItem} onClick={() => actions.remove(item)}>
+              <Trash2 />
+            </Button>
           </span>
         )}
       </div>

@@ -136,7 +136,7 @@ The viewer SHALL show a horizontal strip of thumbnails below the media, containi
 
 ### Requirement: Item context menu
 
-Right-clicking an item in the grid, or the content in the viewer, SHALL show the actions Open with default app, Show in Explorer, Pin, Copy image and Delete. Pin and Copy image SHALL be shown only for photo items; other files get Open with default app, Show in Explorer and Delete.
+Right-clicking an item in the grid, or the content in the viewer, SHALL show the actions Open with default app, Show in Explorer, Pin, Copy image, Extract text and Delete. Pin and Copy image SHALL be shown only for photo items, and Extract text only for photo items while Windows has an OCR language; other files get Open with default app, Show in Explorer and Delete.
 
 #### Scenario: Open with default app
 
@@ -178,6 +178,21 @@ Right-clicking an item in the grid, or the content in the viewer, SHALL show the
 - **WHEN** the user right-clicks an other file
 - **THEN** the menu has no Pin action
 
+#### Scenario: Extract text from a grid item
+
+- **WHEN** an OCR language is installed and the user chooses Extract text on a PNG item in the grid
+- **THEN** the viewer opens on that item with the text pane open
+
+#### Scenario: No extract text for video
+
+- **WHEN** the user right-clicks an MP4 item
+- **THEN** the menu has no Extract text action
+
+#### Scenario: No extract text without OCR
+
+- **WHEN** no OCR language is installed and the user right-clicks a PNG item
+- **THEN** the menu has no Extract text action
+
 ### Requirement: Delete moves to the Recycle Bin after confirmation
 Delete SHALL ask for confirmation and, when confirmed, move the file to the Windows Recycle Bin and remove it from the gallery. Deleting from the viewer SHALL show the next item, or the previous one when it was the last, or close the viewer when nothing is left in the filter. A failed delete SHALL keep the item and show an error.
 
@@ -199,7 +214,7 @@ Delete SHALL ask for confirmation and, when confirmed, move the file to the Wind
 
 ### Requirement: File actions are limited to the output folder
 
-Thumbnails, viewer content, open, reveal, copy, pin and delete SHALL only act on files directly inside the resolved output folder. Viewer content SHALL only be served for photo and video files. Pin SHALL only act on photo files. A request for any other path SHALL be refused without touching the file.
+Thumbnails, viewer content, open, reveal, copy, extract text, pin and delete SHALL only act on files directly inside the resolved output folder. Viewer content SHALL only be served for photo and video files. Pin and extract text SHALL only act on photo files. A request for any other path SHALL be refused without touching the file.
 
 #### Scenario: Path outside the folder
 
@@ -215,6 +230,11 @@ Thumbnails, viewer content, open, reveal, copy, pin and delete SHALL only act on
 
 - **WHEN** a pin request names a video or other file inside the output folder
 - **THEN** the request is refused and no pin appears
+
+#### Scenario: Extract text outside the folder
+
+- **WHEN** an extract text request names a path outside the output folder or a video inside it
+- **THEN** the request is refused and nothing is recognized
 
 #### Scenario: Viewer content for other file
 
@@ -453,3 +473,59 @@ Every bulk delete, copy and pin path SHALL point to a file directly inside the r
 
 - **WHEN** a bulk delete request includes a video inside the output folder
 - **THEN** it is accepted
+
+### Requirement: Viewer text pane
+While viewing a photo with an OCR language installed, the viewer SHALL offer a toggle that opens a pane to the right of the image showing the photo's recognized content: each decoded QR code, marked as QR, then the recognized text, keeping its lines. The text SHALL be selectable and copyable but not editable, and a Copy all action SHALL copy all of it. The pane SHALL NOT change the clipboard or show a notification on its own.
+
+#### Scenario: Open the pane
+
+- **WHEN** the user views a PNG containing two lines of text and turns on the text toggle
+- **THEN** a pane on the right shows a loading indicator, then the two lines, and the clipboard is unchanged
+
+#### Scenario: Read-only text
+
+- **WHEN** the text pane shows recognized text
+- **THEN** the user can select it and copy it with Ctrl+C, but cannot type into or change it
+
+#### Scenario: Copy all
+
+- **WHEN** the user chooses Copy all in the text pane
+- **THEN** the clipboard holds every QR content and the recognized text shown in the pane
+
+#### Scenario: QR code in the photo
+
+- **WHEN** the viewed photo contains a QR code and a caption
+- **THEN** the pane shows the QR content marked as QR followed by the caption text
+
+#### Scenario: No text
+
+- **WHEN** the viewed photo has no QR code and no recognizable text
+- **THEN** the pane says no text was found
+
+#### Scenario: Recognition fails
+
+- **WHEN** the photo cannot be decoded or recognition fails and no QR code was found
+- **THEN** the pane shows the error
+
+### Requirement: Text pane follows the viewer
+The text pane SHALL stay open while the user moves between photos with Left/Right or the thumbnail strip and SHALL show the content of the photo being viewed, recognizing each photo at most once while the gallery is shown. It SHALL be hidden on videos. Escape SHALL close the pane before it closes the viewer, and closing the viewer SHALL close the pane.
+
+#### Scenario: Next photo
+
+- **WHEN** the text pane is open and the user presses Right to another photo
+- **THEN** the pane shows that photo's content
+
+#### Scenario: Back to a seen photo
+
+- **WHEN** the user returns to a photo whose text was already shown
+- **THEN** the pane shows it immediately without recognizing it again
+
+#### Scenario: Video
+
+- **WHEN** the text pane is open and the user moves to a video
+- **THEN** the pane is hidden, and it reappears on the next photo
+
+#### Scenario: Escape
+
+- **WHEN** the text pane is open and the user presses Escape
+- **THEN** the pane closes and the viewer stays open

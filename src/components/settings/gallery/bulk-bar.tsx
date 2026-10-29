@@ -15,9 +15,9 @@ type Props = {
 export function BulkBar({ count, photos, onSelectAll, onDelete, onCopy, onPin, onCancel }: Props) {
   const { t } = useSettingsContext();
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
-      <span className="text-sm font-medium">{t.bulkSelected.replace("{count}", String(count))}</span>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
+    <div className="absolute inset-x-0 bottom-4 z-30 mx-auto flex w-fit max-w-[calc(100%-3rem)] flex-wrap items-center gap-2 rounded-xl border bg-popover px-3 py-2 text-popover-foreground shadow-lg">
+      <span className="pr-2 text-sm font-medium">{t.bulkSelected.replace("{count}", String(count))}</span>
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={onSelectAll}>
           {t.bulkSelectAll}
         </Button>

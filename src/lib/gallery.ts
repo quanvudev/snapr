@@ -21,8 +21,10 @@ export const PERIODS: Record<Period, { key: (d: Date) => string; format: Intl.Da
   },
 };
 
-export function matches(item: GalleryItem, filter: Filter) {
-  return filter === "all" || item.kind === filter;
+export function matches(item: GalleryItem, filter: Filter, query: string) {
+  if (filter !== "all" && item.kind !== filter) return false;
+  const q = query.trim().toLowerCase();
+  return !q || fileName(item.path).toLowerCase().includes(q);
 }
 
 export function isViewable(item: GalleryItem) {
@@ -46,4 +48,24 @@ export function formatGroup(ms: number, period: Period, language: string) {
 
 export function fileName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+const UNITS = ["B", "KB", "MB", "GB"];
+
+export function formatSize(bytes: number) {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${UNITS[unit]}`;
+}
+
+export function formatDuration(seconds: number) {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rest = pad2(s % 60);
+  return h ? `${h}:${pad2(m)}:${rest}` : `${m}:${rest}`;
 }

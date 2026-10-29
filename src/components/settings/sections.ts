@@ -4,8 +4,8 @@ import { Gallery } from "./gallery/gallery";
 import { Preferences } from "./preferences/preferences";
 import { Ring } from "./ring/ring";
 
-export const SECTIONS: { id: SectionId; icon: typeof Images; component: () => React.ReactNode; wide?: boolean }[] = [
-  { id: "gallery", icon: Images, component: Gallery, wide: true },
+export const SECTIONS: { id: SectionId; icon: typeof Images; component: () => React.ReactNode; wide?: boolean; fill?: boolean }[] = [
+  { id: "gallery", icon: Images, component: Gallery, wide: true, fill: true },
   { id: "settings", icon: SettingsIcon, component: Preferences },
   { id: "ring", icon: Route, component: Ring, wide: true },
 ];

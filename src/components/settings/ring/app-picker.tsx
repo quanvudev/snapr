@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Spinner } from "@/components/ui/spinner";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { RingItem } from "@/lib/api";
-import { GENERIC_APP_ICON, installedAppItem, pickApp } from "@/lib/ring";
-import { AppIcon } from "./ring-icon";
+import { installedAppItem, pickApp } from "@/lib/ring";
+import { AppIcon, GenericAppIcon } from "./ring-icon";
 import { useInstalledApps } from "./use-installed-apps";
 
 const ICON_PLACEHOLDER_SIZE = "size-5";
@@ -30,7 +30,7 @@ function LazyAppIcon({ path }: { path: string }) {
 
   return (
     <span ref={ref} className={`flex shrink-0 items-center justify-center ${ICON_PLACEHOLDER_SIZE}`}>
-      {visible ? <AppIcon path={path} /> : <GENERIC_APP_ICON />}
+      {visible ? <AppIcon path={path} /> : <GenericAppIcon />}
     </span>
   );
 }

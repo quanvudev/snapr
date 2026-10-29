@@ -20,13 +20,17 @@ use winit::event_loop::EventLoopProxy;
 pub(crate) enum Target {
     Window(isize),
     Monitor(isize),
+    Area { monitor: isize, rect: Area },
 }
+
+pub(crate) type Area = (u32, u32, u32, u32);
 
 type Flags = (Target, PathBuf, EventLoopProxy<Action>, u32);
 
 struct Handler {
     encoder: Option<VideoEncoder>,
     size: (u32, u32),
+    crop: Option<Area>,
     interval: i64,
     next: Option<i64>,
     kept: Option<i64>,
@@ -51,8 +55,10 @@ impl Handler {
     }
 
     fn keep(&mut self, frame: &mut Frame) {
-        let (w, h) = (frame.width().min(self.size.0), frame.height().min(self.size.1));
-        let Ok(buffer) = frame.buffer_crop(0, 0, w, h) else { return };
+        let (x, y) = self.crop.map_or((0, 0), |(x, y, _, _)| (x, y));
+        let w = frame.width().saturating_sub(x).min(self.size.0);
+        let h = frame.height().saturating_sub(y).min(self.size.1);
+        let Ok(buffer) = frame.buffer_crop(x, y, x + w, y + h) else { return };
         let mut raw = Vec::new();
         let mut px = buffer.as_nopadding_buffer(&mut raw).to_vec();
         px.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p.swap(0, 2));
@@ -70,15 +76,22 @@ impl GraphicsCaptureApiHandler for Handler {
         let (target, path, proxy, fps) = ctx.flags;
         let item: GraphicsCaptureItemType = match target {
             Target::Window(hwnd) => Window::from_raw_hwnd(hwnd as *mut c_void).try_into().map_err(|e| format!("{e}")),
-            Target::Monitor(hmonitor) => {
+            Target::Monitor(hmonitor) | Target::Area { monitor: hmonitor, .. } => {
                 Monitor::from_raw_hmonitor(hmonitor as *mut c_void).try_into().map_err(|e| format!("{e}"))
             }
         }?;
+        let crop = match target {
+            Target::Area { rect, .. } => Some(rect),
+            _ => None,
+        };
         let (GraphicsCaptureItemType::Window((item, _)) | GraphicsCaptureItemType::Monitor((item, _))) = item else {
             return Err("unsupported capture target".into());
         };
         let size = item.Size().map_err(|e| e.to_string())?;
-        let size = (size.Width.max(0) as u32 & !1, size.Height.max(0) as u32 & !1);
+        let size = match crop {
+            Some((_, _, w, h)) => (w & !1, h & !1),
+            None => (size.Width.max(0) as u32 & !1, size.Height.max(0) as u32 & !1),
+        };
         if size.0 == 0 || size.1 == 0 {
             return Err("window is too small".into());
         }
@@ -89,7 +102,7 @@ impl GraphicsCaptureApiHandler for Handler {
             &path,
         )
         .map_err(|e| e.to_string())?;
-        Ok(Self { encoder: Some(encoder), size, interval: 10_000_000 / fps as i64, next: None, kept: None, last: RgbaImage::new(0, 0), path, proxy })
+        Ok(Self { encoder: Some(encoder), size, crop, interval: 10_000_000 / fps as i64, next: None, kept: None, last: RgbaImage::new(0, 0), path, proxy })
     }
 
     fn on_frame_arrived(&mut self, frame: &mut Frame, control: InternalCaptureControl) -> Result<(), String> {
@@ -98,7 +111,23 @@ impl GraphicsCaptureApiHandler for Handler {
         if self.next.is_some_and(|next| time < next - self.interval / 2) {
             return Ok(());
         }
-        if let Err(e) = encoder.send_frame(frame) {
+        let sent = match self.crop {
+            Some((x, y, _, _)) => {
+                let (w, h) = self.size;
+                if frame.width() < x + w || frame.height() < y + h {
+                    return Ok(());
+                }
+                match frame.buffer_crop(x, y, x + w, y + h) {
+                    Ok(buffer) => {
+                        let mut raw = Vec::new();
+                        encoder.send_frame_buffer(buffer.as_nopadding_buffer(&mut raw), time).map_err(|e| e.to_string())
+                    }
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            None => encoder.send_frame(frame).map_err(|e| e.to_string()),
+        };
+        if let Err(e) = sent {
             self.encoder = None;
             self.fail(e);
             control.stop();
@@ -134,7 +163,7 @@ impl Recorder {
                 ColorFormat::Bgra8,
                 flags,
             )),
-            Target::Monitor(hmonitor) => Handler::start_free_threaded(Settings::new(
+            Target::Monitor(hmonitor) | Target::Area { monitor: hmonitor, .. } => Handler::start_free_threaded(Settings::new(
                 Monitor::from_raw_hmonitor(hmonitor as *mut c_void),
                 CursorCaptureSettings::WithCursor,
                 DrawBorderSettings::Default,

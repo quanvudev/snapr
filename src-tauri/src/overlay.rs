@@ -14,6 +14,7 @@ use winit::window::{CursorIcon, Window, WindowId, WindowLevel};
 
 const BORDER: u32 = 0x3090f0;
 const SELECTION_BORDER: i32 = 2;
+const DRAG_THRESHOLD: i32 = 4;
 
 #[derive(Clone, Copy)]
 pub enum Pick {
@@ -30,12 +31,16 @@ pub enum Outcome {
 pub enum Shot {
     Ready(RgbaImage),
     Window { hwnd: isize, border: Option<[u8; 3]>, frame: RgbaImage, rect: Rect },
+    Region { rect: Rect, start: (i32, i32), hwnd: Option<isize> },
 }
 
 pub type Rect = (i32, i32, i32, i32);
 
 pub struct Overlay {
     pick: Pick,
+    record: bool,
+    area: bool,
+    origin: (i32, i32),
     window: Rc<Window>,
     surface: Surface<Rc<Window>, Rc<Window>>,
     frame: RgbaImage,
@@ -92,7 +97,7 @@ fn desktop() -> Option<(i32, i32, RgbaImage, Vec<Rect>)> {
 }
 
 impl Overlay {
-    pub fn open(event_loop: &ActiveEventLoop, pick: Pick, draw: Option<Style>, vi: bool) -> Option<Self> {
+    pub fn open(event_loop: &ActiveEventLoop, pick: Pick, record: bool, draw: Option<Style>, vi: bool) -> Option<Self> {
         let (mx, my, frame, monitors) = desktop()?;
         let (w, h) = frame.dimensions();
         if w == 0 || h == 0 {
@@ -123,6 +128,9 @@ impl Overlay {
         window.request_redraw();
         Some(Self {
             pick,
+            record,
+            area: false,
+            origin: (mx, my),
             window,
             surface,
             frame,
@@ -164,6 +172,16 @@ impl Overlay {
                 self.cursor = (position.x as i32, position.y as i32);
                 match self.pick {
                     Pick::Area if self.drag.is_some() => self.window.request_redraw(),
+                    Pick::Window if self.area => self.window.request_redraw(),
+                    Pick::Window if self.record
+                        && self.drag.is_some_and(|(x, y)| {
+                            (self.cursor.0 - x).abs() > DRAG_THRESHOLD || (self.cursor.1 - y).abs() > DRAG_THRESHOLD
+                        }) =>
+                    {
+                        self.area = true;
+                        self.hover = None;
+                        self.window.request_redraw();
+                    }
                     Pick::Window => {
                         let hover = self.hit();
                         if hover != self.hover {
@@ -193,20 +211,40 @@ impl Overlay {
                     self.window.request_redraw();
                     Outcome::Pending
                 }
-                (Pick::Window, ElementState::Pressed) => {
-                    let Some(i) = self.hit() else { return Outcome::Pending };
-                    let (win, r) = &self.windows[i];
-                    let r = *r;
-                    let hwnd = win.id().map_or(0, |id| id as i32 as isize);
-                    let border = self.edge_color(r);
-                    let frame = std::mem::take(&mut self.frame);
-                    Outcome::Save(Shot::Window { hwnd, border, frame, rect: r })
+                (Pick::Window, ElementState::Pressed) if self.record => {
+                    self.drag = Some(self.cursor);
+                    Outcome::Pending
                 }
+                (Pick::Window, ElementState::Released) if self.record && self.area => {
+                    let Some(start) = self.drag.take() else { return Outcome::Pending };
+                    self.area = false;
+                    let (x, y, w, h) = span(start, self.cursor);
+                    let (ox, oy) = self.origin;
+                    let hwnd = self.window_at(start);
+                    Outcome::Save(Shot::Region { rect: (x + ox, y + oy, w, h), start: (start.0 + ox, start.1 + oy), hwnd })
+                }
+                (Pick::Window, ElementState::Released) if self.record => {
+                    if self.drag.take().is_none() {
+                        return Outcome::Pending;
+                    }
+                    self.pick_window()
+                }
+                (Pick::Window, ElementState::Pressed) => self.pick_window(),
                 (Pick::Window, ElementState::Released) => Outcome::Pending,
             },
             WindowEvent::RedrawRequested => self.draw().map_or(Outcome::Cancel, |_| Outcome::Pending),
             _ => Outcome::Pending,
         }
+    }
+
+    fn pick_window(&mut self) -> Outcome {
+        let Some(i) = self.hit() else { return Outcome::Pending };
+        let (win, r) = &self.windows[i];
+        let r = *r;
+        let hwnd = win.id().map_or(0, |id| id as i32 as isize);
+        let border = self.edge_color(r);
+        let frame = std::mem::take(&mut self.frame);
+        Outcome::Save(Shot::Window { hwnd, border, frame, rect: r })
     }
 
     pub fn style(&self) -> Option<Style> {
@@ -388,13 +426,24 @@ impl Overlay {
     }
 
     pub fn hovered(&self) -> Option<isize> {
-        let (win, _) = &self.windows[self.hit()?];
+        self.window_at(self.cursor)
+    }
+
+    pub fn clicked(&self) -> bool {
+        self.drag.is_some() && !self.area
+    }
+
+    fn window_at(&self, at: (i32, i32)) -> Option<isize> {
+        let (win, _) = &self.windows[self.hit_at(at)?];
         Some(win.id().map_or(0, |id| id as i32 as isize))
     }
 
     fn hit(&self) -> Option<usize> {
-        let (x, y) = self.cursor;
-        self.windows.iter().position(|&(_, r)| contains(r, (x, y)))
+        self.hit_at(self.cursor)
+    }
+
+    fn hit_at(&self, at: (i32, i32)) -> Option<usize> {
+        self.windows.iter().position(|&(_, r)| contains(r, at))
     }
 
     fn edge_color(&self, r: Rect) -> Option<[u8; 3]> {
@@ -445,6 +494,7 @@ impl Overlay {
         }
         let highlight = match self.pick {
             Pick::Area => self.drag.map(|s| span(s, self.cursor)),
+            Pick::Window if self.area => self.drag.map(|s| span(s, self.cursor)),
             Pick::Window => self.hover.map(|i| self.windows[i].1),
         };
         if let Some((x0, y0, x1, y1)) = highlight.and_then(|r| clamp(r, w as u32, h)) {

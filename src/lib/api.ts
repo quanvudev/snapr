@@ -16,8 +16,9 @@ export type Config = {
   copy_to_clipboard: boolean;
   preview_seconds: number;
   record_fps: number;
+  record_countdown: boolean;
   text_capture: boolean;
-  padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number };
+  padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number; wallpaper: boolean };
   language: "vi" | "en";
   theme: Theme;
   hotkeys: Hotkeys;
@@ -26,8 +27,10 @@ export type Config = {
 export type Row = { combo: string; error: "invalid" | "needs_modifier" | "duplicate" | null; in_use: boolean };
 export type Loaded = { config: Config; autostart: boolean; dir: string; first_run: boolean; ocr_available: boolean };
 export type InstalledApp = { name: string; path: string };
-export type GalleryItem = { path: string; date_ms: number; kind: "photo" | "video" | "other" };
+export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other" };
 export type BulkFailure = { path: string; error: string };
+
+export type Recognized = { qr: string[]; text: string };
 
 export const api = {
   load: () => invoke<Loaded>("load"),
@@ -48,6 +51,7 @@ export const api = {
   galleryCopy: (path: string) => invoke("gallery_copy", { path }),
   galleryCopyFiles: (paths: string[]) => invoke("gallery_copy_files", { paths }),
   galleryPin: (path: string) => invoke("gallery_pin", { path }),
+  galleryText: (path: string) => invoke<Recognized>("gallery_text", { path }),
   galleryPinMany: (paths: string[]) => invoke("gallery_pin_many", { paths }),
   galleryDelete: (path: string) => invoke("gallery_delete", { path }),
   galleryDeleteMany: (paths: string[]) => invoke<BulkFailure[]>("gallery_delete_many", { paths }),

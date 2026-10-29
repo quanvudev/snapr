@@ -16,7 +16,7 @@ export function BackgroundRow() {
     <Item variant="muted">
       <ItemContent>
         <ItemTitle>{t.background}</ItemTitle>
-        <ItemDescription className="truncate">{cfg.padding.image || t.transparent}</ItemDescription>
+        <ItemDescription className="truncate">{cfg.padding.image || (cfg.padding.wallpaper ? t.wallpaperInUse : t.transparent)}</ItemDescription>
       </ItemContent>
       <ItemActions>
         <Button variant="outline" disabled={!cfg.padding.enabled} onClick={browse}>

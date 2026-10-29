@@ -130,11 +130,12 @@ pub struct Padding {
     pub image: String,
     pub round: bool,
     pub radius: u32,
+    pub wallpaper: bool,
 }
 
 impl Default for Padding {
     fn default() -> Self {
-        Self { enabled: false, size: 32, image: String::new(), round: false, radius: 12 }
+        Self { enabled: false, size: 32, image: String::new(), round: false, radius: 12, wallpaper: false }
     }
 }
 
@@ -147,6 +148,8 @@ pub struct Config {
     pub language: String,
     pub theme: String,
     pub record_fps: u32,
+    #[serde(default)]
+    pub record_countdown: bool,
     pub text_capture: bool,
     pub padding: Padding,
     pub hotkeys: Hotkeys,
@@ -208,6 +211,7 @@ impl Default for Config {
             language: "vi".into(),
             theme: "system".into(),
             record_fps: 30,
+            record_countdown: false,
             text_capture: true,
             padding: Padding::default(),
             hotkeys: Hotkeys::default(),

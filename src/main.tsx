@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { TooltipProvider } from "./components/ui/tooltip";
-import { ToastProvider } from "./components/ui/toast";
+import { Toaster } from "./components/ui/toast";
 
 const BLOCKED_CTRL_KEYS = ["r", "p"];
 
@@ -18,6 +18,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <TooltipProvider>
       <App />
     </TooltipProvider>
-    <ToastProvider />
+    <Toaster />
   </React.StrictMode>,
 );

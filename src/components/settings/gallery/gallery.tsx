@@ -1,11 +1,15 @@
-import { useEffect } from "react";
-import { Images } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Images, ListChecks, Search, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
-import { useGallery } from "@/hooks/use-gallery";
+import { TILE, useGallery } from "@/hooks/use-gallery";
 import { formatGroup, type Filter, type Period } from "@/lib/gallery";
+import { cn } from "@/lib/utils";
 import { BulkBar } from "./bulk-bar";
 import { DeleteDialog } from "./delete-dialog";
 import { GalleryGroup } from "./gallery-group";
@@ -14,10 +18,13 @@ import { Viewer } from "./viewer";
 export function Gallery() {
   const { t, cfg } = useSettingsContext();
   const g = useGallery();
+  const selecting = g.selectMode || g.selectedCount > 0;
+  const [origin, setOrigin] = useState<DOMRect | null>(null);
 
   useEffect(() => {
-    if (g.viewer || (!g.selectMode && g.selectedCount === 0)) return;
+    if (g.viewer || !selecting) return;
     const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -29,7 +36,7 @@ export function Gallery() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [g.clearSelection, g.selectAll, g.selectMode, g.selectedCount, g.viewer]);
+  }, [g.clearSelection, g.selectAll, selecting, g.viewer]);
 
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: t.filterAll },
@@ -43,65 +50,99 @@ export function Gallery() {
   ];
 
   return (
-    <div className="space-y-4">
-      {g.viewer ? (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {g.viewer && (
         <Viewer
           {...g.viewer}
           items={g.items}
           actions={g.actions}
           paused={!!g.pendingDelete}
+          text={g.text}
+          onToggleText={g.toggleText}
+          onCloseText={g.closeText}
           onStep={g.step}
           onSelect={g.view}
-          onClose={g.closeViewer}
+          origin={origin}
+          onClose={() => {
+            setOrigin(null);
+            g.closeViewer();
+          }}
         />
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <ToggleGroup
-                variant="outline"
-                spacing={0}
-                value={[g.filter]}
-                onValueChange={(v) => v[0] && g.setFilter(v[0] as Filter)}
-              >
-                {filters.map((f) => (
-                  <ToggleGroupItem key={f.id} value={f.id}>
-                    {f.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-              <ToggleGroup
-                variant="outline"
-                spacing={0}
-                value={[g.period]}
-                onValueChange={(v) => v[0] && g.setPeriod(v[0] as Period)}
-              >
-                {periods.map((p) => (
-                  <ToggleGroupItem key={p.id} value={p.id}>
-                    {p.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-            <Button
-              variant={g.selectMode ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => g.setSelectMode(!g.selectMode)}
-            >
-              {t.bulkSelect}
-            </Button>
-          </div>
-          {(g.selectMode || g.selectedCount > 0) && (
-            <BulkBar
-              count={g.selectedCount}
-              photos={g.photosSelected}
-              onSelectAll={g.selectAll}
-              onDelete={g.actions.deleteSelected}
-              onCopy={g.actions.copySelected}
-              onPin={g.actions.pinSelected}
-              onCancel={g.clearSelection}
+      )}
+      <div className={cn("flex min-h-0 flex-1 flex-col animate-in duration-200 fade-in-0", g.viewer && "hidden")}>
+        <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
+          <ToggleGroup
+            variant="outline"
+            spacing={0}
+            value={[g.filter]}
+            onValueChange={(v) => v[0] && g.setFilter(v[0] as Filter)}
+          >
+            {filters.map((f) => (
+              <ToggleGroupItem key={f.id} value={f.id}>
+                {f.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <ToggleGroup
+            variant="outline"
+            spacing={0}
+            value={[g.period]}
+            onValueChange={(v) => v[0] && g.setPeriod(v[0] as Period)}
+          >
+            {periods.map((p) => (
+              <ToggleGroupItem key={p.id} value={p.id}>
+                {p.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <InputGroup className="w-56">
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            <InputGroupInput
+              value={g.query}
+              placeholder={t.search}
+              onChange={(e) => g.setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && g.query) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  g.setQuery("");
+                }
+              }}
             />
-          )}
+            {g.query && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton size="icon-xs" title={t.close} onClick={() => g.setQuery("")}>
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="w-28" title={t.tileSize}>
+              <Slider
+                aria-label={t.tileSize}
+                min={TILE.min}
+                max={TILE.max}
+                value={[g.tile]}
+                onValueChange={(v) => g.setTile(Array.isArray(v) ? v[0] : v)}
+              />
+            </div>
+            {g.selectMode ? (
+              <Button variant="secondary" size="sm" onClick={g.clearSelection}>
+                <X />
+                {t.bulkCancel}
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => g.setSelectMode(true)}>
+                <ListChecks />
+                {t.bulkSelect}
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {g.empty ? (
             <Empty>
               <EmptyHeader>
@@ -112,31 +153,61 @@ export function Gallery() {
                 <EmptyDescription>{t.galleryEmptyHint}</EmptyDescription>
               </EmptyHeader>
             </Empty>
+          ) : g.noMatch ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <SearchX />
+                </EmptyMedia>
+                <EmptyTitle>{t.noMatch}</EmptyTitle>
+                <EmptyDescription>{t.noMatchHint}</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button variant="outline" size="sm" onClick={g.resetFilters}>
+                  {t.showAll}
+                </Button>
+              </EmptyContent>
+            </Empty>
           ) : (
-            g.groups.map((group) => (
-              <GalleryGroup
-                key={group.key}
-                group={group}
-                label={formatGroup(group.date_ms, g.period, cfg.language)}
-                collapsed={g.collapsed.has(group.key)}
-                actions={g.actions}
-                selectMode={g.selectMode}
-                selected={g.selected}
-                onToggle={() => g.toggleGroup(group.key)}
-                onOpen={g.view}
-                onSelect={g.toggleSelect}
-                onRange={g.selectRange}
-                onLongPress={g.addSelected}
-              />
-            ))
+            <ScrollArea className="min-h-0 flex-1">
+              <div className={`px-6 ${selecting ? "pb-24" : "pb-6"}`}>
+                {g.groups.map((group) => (
+                  <GalleryGroup
+                    key={group.key}
+                    group={group}
+                    label={formatGroup(group.date_ms, g.period, cfg.language)}
+                    tile={g.tile}
+                    collapsed={g.collapsed.has(group.key)}
+                    actions={g.actions}
+                    selectMode={g.selectMode}
+                    selected={g.selected}
+                    onToggle={() => g.toggleGroup(group.key)}
+                    onOpen={(item, from) => {
+                      setOrigin(from);
+                      g.view(item);
+                    }}
+                    onSelect={g.toggleSelect}
+                    onSelectGroup={(on) => g.selectGroup(group.items, on)}
+                    onRange={g.selectRange}
+                    onLongPress={g.addSelected}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
           )}
-        </>
-      )}
-      {g.error && (
-        <p className="text-xs text-red-500">
-          {t.galleryFailed}: {g.error}
-        </p>
-      )}
+          {selecting && (
+            <BulkBar
+              count={g.selectedCount}
+              photos={g.photosSelected}
+              onSelectAll={g.selectAll}
+              onDelete={g.actions.deleteSelected}
+              onCopy={g.actions.copySelected}
+              onPin={g.actions.pinSelected}
+              onCancel={g.clearSelection}
+            />
+          )}
+        </div>
+      </div>
       <DeleteDialog items={g.pendingDelete} onCancel={g.cancelDelete} onConfirm={g.confirmDelete} />
     </div>
   );

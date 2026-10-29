@@ -15,6 +15,7 @@ use tauri::{AppHandle, Manager, UriSchemeContext, UriSchemeResponder, Wry};
 use tauri_plugin_opener::OpenerExt;
 use windows::Win32::Foundation::SIZE;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
@@ -68,6 +69,7 @@ impl Kind {
 pub struct Item {
     path: String,
     date_ms: u64,
+    size: u64,
     kind: Kind,
 }
 
@@ -88,7 +90,7 @@ fn list(dir: &Path) -> Vec<Item> {
             let modified = meta.modified().ok()?;
             let date = meta.created().map_or(modified, |created| created.min(modified));
             let date_ms = date.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-            Some(Item { path: path.to_str()?.to_string(), date_ms, kind })
+            Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind })
         })
         .collect();
     items.sort_by_key(|item| std::cmp::Reverse(item.date_ms));
@@ -213,6 +215,33 @@ pub fn gallery_pin(app: AppHandle, path: String) -> Result<(), String> {
         .unwrap()
         .send_event(crate::Action::Pin(path))
         .map_err(|_| "pin failed".to_string())
+}
+
+#[derive(Serialize)]
+pub struct Recognized {
+    qr: Vec<String>,
+    text: String,
+}
+
+#[tauri::command]
+pub async fn gallery_text(app: AppHandle, path: String) -> Result<Recognized, String> {
+    let path = guarded(&app, &path)?;
+    if Kind::of(&path) != Kind::Photo {
+        return Err("not an image".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let img = image::open(&path).map_err(|e| e.to_string())?.to_rgba8();
+        let qr = crate::ocr::qr(&img);
+        let text = match crate::ocr::extract(&img) {
+            Ok(text) => text.trim().to_string(),
+            Err(_) if !qr.is_empty() => String::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(Recognized { qr, text })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

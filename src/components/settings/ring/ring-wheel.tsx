@@ -14,7 +14,7 @@ import {
   wheelOrbit,
 } from "@/lib/ring";
 import { cn } from "@/lib/utils";
-import { RingIcon } from "./ring-icon";
+import { Glyph, RingIcon } from "./ring-icon";
 import type { RingDrag } from "./use-ring-drag";
 
 const BUTTON_SIZE = 2 * RING_BUTTON_RADIUS;
@@ -132,10 +132,9 @@ export function RingWheel({ items, selected, removed, drag, keys, onSelect, onAd
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-auto">
               {removed.map((id) => {
-                const Icon = BUILTINS[id].icon;
                 return (
                   <DropdownMenuItem key={id} onClick={() => onAddBuiltin(id)}>
-                    <Icon />
+                    <Glyph char={BUILTINS[id].glyph} />
                     {t[BUILTINS[id].name]}
                   </DropdownMenuItem>
                 );

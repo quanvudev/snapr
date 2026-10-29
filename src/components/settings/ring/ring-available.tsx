@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { BuiltinId } from "@/lib/api";
 import { BUILTINS } from "@/lib/ring";
+import { Glyph } from "./ring-icon";
 import type { RingDrag } from "./use-ring-drag";
 
 type Props = {
@@ -21,7 +22,6 @@ export function RingAvailable({ removed, full, drag, onAddBuiltin, onAddApp }: P
       <h3 className="text-xs font-medium text-muted-foreground">{t.ringAddToRing}</h3>
       <div className="flex flex-wrap gap-2">
         {removed.map((id) => {
-          const Icon = BUILTINS[id].icon;
           return (
             <Button
               key={id}
@@ -33,7 +33,7 @@ export function RingAvailable({ removed, full, drag, onAddBuiltin, onAddApp }: P
               onDragStart={drag.start({ kind: "builtin", id })}
               onDragEnd={drag.end}
             >
-              <Icon />
+              <Glyph char={BUILTINS[id].glyph} />
               {t[BUILTINS[id].name]}
             </Button>
           );

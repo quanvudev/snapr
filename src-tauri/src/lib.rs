@@ -1,6 +1,7 @@
 mod capture;
 mod config;
 mod draw;
+mod frame;
 mod gallery;
 mod mouse;
 mod ocr;
@@ -14,7 +15,7 @@ mod toolbar;
 
 use config::Config;
 use image::RgbaImage;
-use overlay::{Outcome, Overlay, Pick, Shot};
+use overlay::{Outcome, Overlay, Pick, Rect, Shot};
 use recorder::{Recorder, Target};
 use ring::{Entry, Ring};
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, RwLock};
+use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, WindowEvent};
@@ -33,8 +35,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::WindowId;
 use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
-use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetCursorPos};
+use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetCursorPos, GetWindowRect};
 
 #[derive(Clone)]
 enum Action {
@@ -49,6 +51,20 @@ enum Action {
     PinMany(Vec<PathBuf>),
     Recorded(RgbaImage, PathBuf),
     RecordFailed(String),
+    CancelCountdown,
+}
+
+const COUNTDOWN: u32 = 3;
+const TICK: Duration = Duration::from_secs(1);
+const SETTLE: Duration = Duration::from_millis(50);
+const MIN_AREA: i32 = 16;
+
+struct Countdown {
+    target: Target,
+    area: Option<Rect>,
+    step: u32,
+    next: Instant,
+    digit: Option<frame::Digit>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -141,12 +157,32 @@ fn is_desktop(hwnd: isize) -> bool {
     name == "Progman" || name == "WorkerW"
 }
 
-fn cursor_monitor_handle() -> isize {
+fn cursor_monitor() -> Option<(Target, Rect)> {
     let mut p = unsafe { std::mem::zeroed() };
-    unsafe {
-        GetCursorPos(&mut p);
-        MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST) as isize
+    unsafe { GetCursorPos(&mut p) };
+    let (monitor, rect, _) = frame::monitor_at((p.x, p.y))?;
+    Some((Target::Monitor(monitor), rect))
+}
+
+fn window_rect(hwnd: isize) -> Rect {
+    let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    unsafe { GetWindowRect(hwnd as _, &mut r) };
+    (r.left, r.top, r.right - r.left, r.bottom - r.top)
+}
+
+fn region_target(rect: Rect, start: (i32, i32), hwnd: Option<isize>) -> Option<(Target, Rect, Option<Rect>)> {
+    let (monitor, (mx, my, mw, mh), _) = frame::monitor_at(start)?;
+    let (x0, y0) = (rect.0.max(mx), rect.1.max(my));
+    let w = ((rect.0 + rect.2).min(mx + mw) - x0).max(0) & !1;
+    let h = ((rect.1 + rect.3).min(my + mh) - y0).max(0) & !1;
+    if w < MIN_AREA || h < MIN_AREA {
+        return Some(match hwnd.filter(|&hwnd| !is_desktop(hwnd)) {
+            Some(hwnd) => (Target::Window(hwnd), window_rect(hwnd), None),
+            None => (Target::Monitor(monitor), (mx, my, mw, mh), None),
+        });
     }
+    let area = Target::Area { monitor, rect: ((x0 - mx) as u32, (y0 - my) as u32, w as u32, h as u32) };
+    Some((area, (x0, y0, w, h), Some((x0, y0, w, h))))
 }
 
 fn apply(app: &AppHandle) {
@@ -209,6 +245,8 @@ struct Snap {
     jobs: Sender<Job>,
     mode: Mode,
     style: draw::Style,
+    countdown: Option<Countdown>,
+    frame: Option<frame::Frame>,
 }
 
 fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut capture::BackgroundCache, shot: Shot) {
@@ -217,6 +255,7 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
         Shot::Window { hwnd, border, frame, rect } => capture::window(hwnd, border)
             .filter(|img| img.width() > 0 && img.height() > 0)
             .or_else(|| overlay::crop(&frame, rect)),
+        Shot::Region { .. } => None,
     }) else {
         return;
     };
@@ -227,7 +266,11 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
         if cfg.padding.round {
             capture::mask_corners(&mut img, cfg.padding.radius as f32);
         }
-        let bg = backgrounds.get(&cfg.padding.image).map_err(|e| bg_error = Some(e)).ok().flatten();
+        let image = match cfg.padding.image.as_str() {
+            "" if cfg.padding.wallpaper => capture::wallpaper(),
+            image => image.to_string(),
+        };
+        let bg = backgrounds.get(&image).map_err(|e| bg_error = Some(e)).ok().flatten();
         capture::pad(&img, cfg.padding.size, bg)
     } else {
         img
@@ -253,18 +296,30 @@ fn read_text(app: &AppHandle, shot: Shot) {
     let Shot::Ready(img) = shot else { return };
     let vi = app.state::<State>().cfg.read().unwrap().language == "vi";
     let failed = |e: String| if vi { format!("Lỗi nhận dạng chữ: {e}") } else { format!("Text capture failed: {e}") };
-    let msg = match ocr::extract(&img) {
-        Ok(text) if text.trim().is_empty() => if vi { "Không tìm thấy chữ" } else { "No text found" }.to_string(),
-        Ok(text) => {
-            let text = text.trim();
-            let n = text.lines().count();
-            match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
-                Ok(()) if vi => format!("Đã sao chép {n} dòng"),
-                Ok(()) => format!("Copied {n} lines"),
-                Err(e) => failed(e.to_string()),
-            }
+    let codes = ocr::qr(&img);
+    let msg = if !codes.is_empty() {
+        let n = codes.len();
+        match arboard::Clipboard::new().and_then(|mut c| c.set_text(codes.join("\n"))) {
+            Ok(()) if n == 1 && vi => "Đã sao chép mã QR".to_string(),
+            Ok(()) if n == 1 => "QR code copied".to_string(),
+            Ok(()) if vi => format!("Đã sao chép {n} mã QR"),
+            Ok(()) => format!("Copied {n} QR codes"),
+            Err(e) => failed(e.to_string()),
         }
-        Err(e) => failed(e),
+    } else {
+        match ocr::extract(&img) {
+            Ok(text) if text.trim().is_empty() => if vi { "Không tìm thấy chữ" } else { "No text found" }.to_string(),
+            Ok(text) => {
+                let text = text.trim();
+                let n = text.lines().count();
+                match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
+                    Ok(()) if vi => format!("Đã sao chép {n} dòng"),
+                    Ok(()) => format!("Copied {n} lines"),
+                    Err(e) => failed(e.to_string()),
+                }
+            }
+            Err(e) => failed(e),
+        }
     };
     let _ = app.notification().builder().title("Snapr").body(msg).show();
 }
@@ -283,7 +338,9 @@ impl ApplicationHandler<Action> for Snap {
             entry.run(&self.app);
         }
         self.pins.tick();
+        self.tick_countdown(event_loop);
         let deadline = [
+            self.countdown.as_ref().map(|c| c.next),
             self.toast.as_ref().and_then(|t| t.deadline()),
             self.ring.as_ref().map(|r| r.deadline()),
             self.pins.deadline(),
@@ -328,25 +385,32 @@ impl ApplicationHandler<Action> for Snap {
                     Some(Err(e)) => tooltip(&self.app, &format!("Snapr: {e}")),
                     None => {}
                 },
+                pin::Outcome::Text => {
+                    if let Some(image) = self.pins.image(id) {
+                        let _ = self.jobs.send(Job::Text(Shot::Ready(image.clone())));
+                    }
+                }
             }
             return;
         }
         let Some(overlay) = self.overlay.as_mut().filter(|o| o.id() == id) else { return };
-        let click = matches!(
+        let release = matches!(
             event,
             winit::event::WindowEvent::MouseInput {
-                state: winit::event::ElementState::Pressed,
+                state: winit::event::ElementState::Released,
                 button: winit::event::MouseButton::Left,
                 ..
             }
         );
-        if self.mode == Mode::Record && click && overlay.hovered().is_none_or(is_desktop) {
+        if self.mode == Mode::Record && release && overlay.clicked() && overlay.hovered().is_none_or(is_desktop) {
             self.overlay = None;
             self.mode = Mode::Shot;
-            self.pins.hide_recording();
-            self.pins.show_capture();
-            if !record(&self.app, Target::Monitor(cursor_monitor_handle())) {
-                self.pins.show_recording();
+            match cursor_monitor() {
+                Some((target, bounds)) => self.begin(event_loop, target, bounds, None),
+                None => {
+                    self.pins.show_capture();
+                    tooltip(&self.app, "Snapr: capture failed");
+                }
             }
             return;
         }
@@ -367,12 +431,15 @@ impl ApplicationHandler<Action> for Snap {
                 self.overlay = None;
                 match (std::mem::replace(&mut self.mode, Mode::Shot), shot) {
                     (Mode::Record, Shot::Window { hwnd, .. }) => {
-                        self.pins.hide_recording();
-                        self.pins.show_capture();
-                        if !record(&self.app, Target::Window(hwnd)) {
-                            self.pins.show_recording();
-                        }
+                        self.begin(event_loop, Target::Window(hwnd), window_rect(hwnd), None);
                     }
+                    (Mode::Record, Shot::Region { rect, start, hwnd }) => match region_target(rect, start, hwnd) {
+                        Some((target, bounds, area)) => self.begin(event_loop, target, bounds, area),
+                        None => {
+                            self.pins.show_capture();
+                            tooltip(&self.app, "Snapr: capture failed");
+                        }
+                    },
                     (Mode::Text, shot) => {
                         self.pins.show_capture();
                         let _ = self.jobs.send(Job::Text(shot));
@@ -404,7 +471,14 @@ impl ApplicationHandler<Action> for Snap {
             }
             Action::Pick(pick) => self.pick(event_loop, pick, Mode::Shot, false),
             Action::Text => self.pick(event_loop, Pick::Area, Mode::Text, false),
-            Action::Record => self.pick(event_loop, Pick::Window, Mode::Record, false),
+            Action::Record => {
+                if !self.cancel_countdown() {
+                    self.pick(event_loop, Pick::Window, Mode::Record, false);
+                }
+            }
+            Action::CancelCountdown => {
+                self.cancel_countdown();
+            }
             Action::Draw => self.pick(event_loop, Pick::Area, Mode::Shot, true),
             Action::Ring => self.open_ring(event_loop),
             Action::Pin(path) => self.open_pin(event_loop, path),
@@ -414,12 +488,14 @@ impl ApplicationHandler<Action> for Snap {
                 self.preview(event_loop, &img, path, true);
             }
             Action::Recorded(img, path) => {
+                self.frame = None;
                 self.pins.show_recording();
                 ended(&self.app);
                 let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path, false);
             }
             Action::RecordFailed(e) => {
+                self.frame = None;
                 self.pins.show_recording();
                 ended(&self.app);
                 tooltip(&self.app, &format!("Snapr: {e}"));
@@ -429,6 +505,54 @@ impl ApplicationHandler<Action> for Snap {
 }
 
 impl Snap {
+    fn begin(&mut self, event_loop: &ActiveEventLoop, target: Target, bounds: Rect, area: Option<Rect>) {
+        self.pins.hide_recording();
+        self.pins.show_capture();
+        let state = self.app.state::<State>();
+        let countdown = state.cfg.read().unwrap().record_countdown;
+        if countdown && let Some(digit) = frame::Digit::open(event_loop, bounds, COUNTDOWN) {
+            self.countdown = Some(Countdown { target, area, step: COUNTDOWN, next: Instant::now() + TICK, digit: Some(digit) });
+            let _ = state.stop.set_enabled(true);
+            tooltip(&self.app, "Snapr: recording starts…");
+            return;
+        }
+        self.start(event_loop, target, area);
+    }
+
+    fn start(&mut self, event_loop: &ActiveEventLoop, target: Target, area: Option<Rect>) {
+        if record(&self.app, target) {
+            self.frame = area.and_then(|area| frame::Frame::open(event_loop, area));
+        } else {
+            self.pins.show_recording();
+            let _ = self.app.state::<State>().stop.set_enabled(false);
+        }
+    }
+
+    fn tick_countdown(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        let Some(countdown) = self.countdown.as_mut().filter(|c| now >= c.next) else { return };
+        if countdown.step > 1 {
+            countdown.step -= 1;
+            countdown.next = now + TICK;
+            if let Some(digit) = &countdown.digit {
+                digit.show(countdown.step);
+            }
+        } else if countdown.digit.take().is_some() {
+            countdown.next = now + SETTLE;
+        } else if let Some(Countdown { target, area, .. }) = self.countdown.take() {
+            self.start(event_loop, target, area);
+        }
+    }
+
+    fn cancel_countdown(&mut self) -> bool {
+        if self.countdown.take().is_none() {
+            return false;
+        }
+        self.pins.show_recording();
+        ended(&self.app);
+        true
+    }
+
     fn pick(&mut self, event_loop: &ActiveEventLoop, pick: Pick, mode: Mode, draw: bool) {
         if self.overlay.is_some() {
             return;
@@ -436,7 +560,7 @@ impl Snap {
         self.toast = None;
         self.pins.hide_capture();
         let vi = self.app.state::<State>().cfg.read().unwrap().language == "vi";
-        self.overlay = Overlay::open(event_loop, pick, draw.then_some(self.style), vi);
+        self.overlay = Overlay::open(event_loop, pick, mode == Mode::Record, draw.then_some(self.style), vi);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
             self.pins.show_capture();
@@ -488,12 +612,14 @@ impl Snap {
                 return;
             }
         };
-        if let Err(e) = self.pins.add(event_loop, image) {
+        let ocr = self.app.state::<State>().ocr.load(Ordering::Relaxed);
+        if let Err(e) = self.pins.add(event_loop, image, ocr) {
             tooltip(&self.app, &format!("Snapr: {e}"));
         }
     }
 
     fn open_pins(&mut self, event_loop: &ActiveEventLoop, paths: Vec<PathBuf>) {
+        let ocr = self.app.state::<State>().ocr.load(Ordering::Relaxed);
         for (index, path) in paths.into_iter().enumerate() {
             let image = match image::open(&path) {
                 Ok(image) => image.to_rgba8(),
@@ -503,7 +629,7 @@ impl Snap {
                 }
             };
             let offset = ((index as i32) * 24, (index as i32) * 24);
-            if let Err(e) = self.pins.add_at(event_loop, image, offset) {
+            if let Err(e) = self.pins.add_at(event_loop, image, offset, ocr) {
                 tooltip(&self.app, &format!("Snapr: {e}"));
             }
         }
@@ -540,6 +666,8 @@ fn spawn_capture(app: AppHandle) -> EventLoopProxy<Action> {
             jobs,
             mode: Mode::Shot,
             style: draw::Style::default(),
+            countdown: None,
+            frame: None,
         });
     });
     rx.recv().expect("capture event loop")
@@ -592,7 +720,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             let _ = std::process::Command::new("explorer").arg(dir).spawn();
         }
         "stop" => {
-            stop_recording(app);
+            if !stop_recording(app) {
+                let _ = app.state::<State>().proxy.lock().unwrap().send_event(Action::CancelCountdown);
+            }
         }
         "quit" => {
             stop_recording(app);
@@ -665,6 +795,7 @@ pub fn run() {
             gallery::gallery_copy_files,
             gallery::gallery_pin,
             gallery::gallery_pin_many,
+            gallery::gallery_text,
             gallery::gallery_delete,
             gallery::gallery_delete_many
         ])

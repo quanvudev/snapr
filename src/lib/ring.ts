@@ -1,30 +1,18 @@
-import {
-  AppWindow,
-  Circle,
-  Images,
-  LayoutPanelTop,
-  Maximize,
-  Pencil,
-  ScanText,
-  Settings,
-  SquareDashed,
-  type LucideIcon,
-} from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { BuiltinId, Config, InstalledApp, RingItem } from "./api";
 import type { Strings } from "./i18n";
 
 export const MAX_RING_ITEMS = 12;
 
-export const BUILTINS: Record<BuiltinId, { icon: LucideIcon; name: keyof Strings }> = {
-  fullscreen: { icon: Maximize, name: "ringFullscreen" },
-  window: { icon: LayoutPanelTop, name: "ringWindow" },
-  area: { icon: SquareDashed, name: "ringArea" },
-  text: { icon: ScanText, name: "ringText" },
-  record: { icon: Circle, name: "ringRecord" },
-  draw: { icon: Pencil, name: "ringDraw" },
-  gallery: { icon: Images, name: "ringGallery" },
-  settings: { icon: Settings, name: "ringSettings" },
+export const BUILTINS: Record<BuiltinId, { glyph: string; name: keyof Strings }> = {
+  fullscreen: { glyph: "", name: "ringFullscreen" },
+  window: { glyph: "", name: "ringWindow" },
+  area: { glyph: "", name: "ringArea" },
+  text: { glyph: "", name: "ringText" },
+  record: { glyph: "", name: "ringRecord" },
+  draw: { glyph: "", name: "ringDraw" },
+  gallery: { glyph: "", name: "ringGallery" },
+  settings: { glyph: "", name: "ringSettings" },
 };
 
 const POSITION_KEY_COUNT = 9;
@@ -32,7 +20,7 @@ const KEY_CODE = /^(?:Key|Digit|Numpad)([A-Z0-9])$/;
 const STORE_APP_PREFIX = "shell:appsfolder\\";
 const EXE_FILTER = (name: string) => ({ name, extensions: ["exe"] });
 
-export const GENERIC_APP_ICON = AppWindow;
+export const GENERIC_APP_GLYPH = "";
 
 const DEFAULT_RING: RingItem[] = (Object.keys(BUILTINS) as BuiltinId[]).map((id) => ({ kind: "builtin", id }));
 

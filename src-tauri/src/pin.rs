@@ -33,6 +33,7 @@ const PANEL: [u8; 3] = [0x2b, 0x2b, 0x2b];
 const HOVER: [u8; 3] = [0x3a, 0x3a, 0x3a];
 const WHITE: [u8; 3] = [0xff, 0xff, 0xff];
 const COPY: char = '\u{E8C8}';
+const TEXT: char = '\u{E8D2}';
 const CLOSE: char = '\u{E711}';
 const CHECK: char = '\u{E73E}';
 const CHECK_SECS: u64 = 1;
@@ -40,6 +41,7 @@ const CHECK_SECS: u64 = 1;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Button {
     Copy,
+    Text,
     Close,
 }
 
@@ -47,12 +49,12 @@ pub(crate) enum Outcome {
     Pending,
     Close,
     Copy,
+    Text,
 }
 
 struct Toolbar {
     panel: (f32, f32, f32, f32),
-    copy: (f32, f32, f32, f32),
-    close: (f32, f32, f32, f32),
+    buttons: Vec<(Button, (f32, f32, f32, f32))>,
     radius: f32,
     icon: f32,
 }
@@ -72,7 +74,7 @@ struct Pin {
 }
 
 impl Pin {
-    fn open(event_loop: &ActiveEventLoop, image: RgbaImage, offset: (i32, i32)) -> Result<Self, String> {
+    fn open(event_loop: &ActiveEventLoop, image: RgbaImage, offset: (i32, i32), ocr: bool) -> Result<Self, String> {
         let (w, h) = image.dimensions();
         if w == 0 || h == 0 {
             return Err("empty image".into());
@@ -109,7 +111,9 @@ impl Pin {
         let gap = (GAP * scale).round().max(1.0);
         let pad = (PAD * scale).round().max(1.0);
         let margin = (TOOL_MARGIN * scale).round().max(1.0);
-        let toolbar_w = 2.0 * button + gap + 2.0 * pad;
+        let kinds: &[Button] = if ocr { &[Button::Copy, Button::Text, Button::Close] } else { &[Button::Copy, Button::Close] };
+        let count = kinds.len() as f32;
+        let toolbar_w = count * button + (count - 1.0) * gap + 2.0 * pad;
         let toolbar_h = button + 2.0 * pad;
         let win_w = (dw + 2 * BORDER).max((toolbar_w + 2.0 * margin).ceil() as u32).max(1);
         let win_h = (dh + 2 * BORDER).max((toolbar_h + 2.0 * margin).ceil() as u32).max(1);
@@ -154,9 +158,12 @@ impl Pin {
             None,
         );
         let panel = (win_w as f32 - margin - toolbar_w, margin, toolbar_w, toolbar_h);
-        let copy = (panel.0 + pad, panel.1 + pad, button, button);
-        let close = (copy.0 + button + gap, copy.1, button, button);
-        let toolbar = Toolbar { panel, copy, close, radius: (RADIUS * scale).max(1.0), icon: (ICON * scale).max(1.0) };
+        let buttons = kinds
+            .iter()
+            .enumerate()
+            .map(|(i, &kind)| (kind, (panel.0 + pad + i as f32 * (button + gap), panel.1 + pad, button, button)))
+            .collect();
+        let toolbar = Toolbar { panel, buttons, radius: (RADIUS * scale).max(1.0), icon: (ICON * scale).max(1.0) };
         window.set_cursor(CursorIcon::Default);
         let mut pin = Self {
             window,
@@ -252,6 +259,7 @@ impl Pin {
                 {
                     return match button {
                         Button::Copy => Outcome::Copy,
+                        Button::Text => Outcome::Text,
                         Button::Close => Outcome::Close,
                     };
                 }
@@ -297,13 +305,7 @@ impl Pin {
     fn hit(&self, (x, y): (i32, i32)) -> Option<Button> {
         let (x, y) = (x as f32, y as f32);
         let inside = |(rx, ry, rw, rh): (f32, f32, f32, f32)| x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
-        if inside(self.toolbar.close) {
-            Some(Button::Close)
-        } else if inside(self.toolbar.copy) {
-            Some(Button::Copy)
-        } else {
-            None
-        }
+        self.toolbar.buttons.iter().find(|(_, rect)| inside(*rect)).map(|(button, _)| *button)
     }
 
     fn raise(&self) {
@@ -333,7 +335,13 @@ impl Pin {
     fn paint_toolbar(&self, pixmap: &mut Pixmap) {
         toolbar::fill(pixmap, self.toolbar.panel, self.toolbar.radius, PANEL, 0xe6);
         let check = self.check_until.is_some_and(|deadline| deadline > Instant::now());
-        for (button, rect, glyph) in [(Button::Copy, self.toolbar.copy, if check { CHECK } else { COPY }), (Button::Close, self.toolbar.close, CLOSE)] {
+        for &(button, rect) in &self.toolbar.buttons {
+            let glyph = match button {
+                Button::Copy if check => CHECK,
+                Button::Copy => COPY,
+                Button::Text => TEXT,
+                Button::Close => CLOSE,
+            };
             if self.button == Some(button) {
                 toolbar::fill(pixmap, rect, self.toolbar.radius * 0.7, HOVER, 0xff);
             }
@@ -359,12 +367,18 @@ pub(crate) struct Pins {
 }
 
 impl Pins {
-    pub(crate) fn add(&mut self, event_loop: &ActiveEventLoop, image: RgbaImage) -> Result<(), String> {
-        self.add_at(event_loop, image, (0, 0))
+    pub(crate) fn add(&mut self, event_loop: &ActiveEventLoop, image: RgbaImage, ocr: bool) -> Result<(), String> {
+        self.add_at(event_loop, image, (0, 0), ocr)
     }
 
-    pub(crate) fn add_at(&mut self, event_loop: &ActiveEventLoop, image: RgbaImage, offset: (i32, i32)) -> Result<(), String> {
-        let mut pin = Pin::open(event_loop, image, offset)?;
+    pub(crate) fn add_at(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        image: RgbaImage,
+        offset: (i32, i32),
+        ocr: bool,
+    ) -> Result<(), String> {
+        let mut pin = Pin::open(event_loop, image, offset, ocr)?;
         let visible = self.visible();
         pin.set_visible(visible);
         if visible {

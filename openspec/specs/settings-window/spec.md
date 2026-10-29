@@ -64,7 +64,7 @@ The settings window SHALL show a left sidebar listing the groups Gallery, Genera
 
 #### Scenario: Recording group
 - **WHEN** Recording is selected
-- **THEN** the pane shows the recording frame rate with a choice of 30 or 60 fps, set to the current value
+- **THEN** the pane shows the recording frame rate with a choice of 30 or 60 fps, set to the current value, and a countdown on/off switch, set to the current value
 
 #### Scenario: Hotkeys group
 - **WHEN** Hotkeys is selected

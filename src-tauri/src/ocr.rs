@@ -1,13 +1,40 @@
-use image::RgbaImage;
-use image::imageops::{FilterType, resize};
+use image::imageops::{FilterType, grayscale, resize};
+use image::{GrayImage, RgbaImage};
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Security::Cryptography::CryptographicBuffer;
 
 type Row = (f32, f32, Vec<(f32, String)>);
 
+const QR_MAX: u32 = 2000;
+
 pub fn available() -> bool {
     OcrEngine::TryCreateFromUserProfileLanguages().is_ok()
+}
+
+pub fn qr(img: &RgbaImage) -> Vec<String> {
+    let luma = grayscale(img);
+    let longest = luma.width().max(luma.height());
+    let luma: GrayImage = if longest > QR_MAX {
+        let scale = QR_MAX as f64 / longest as f64;
+        let w = ((luma.width() as f64 * scale) as u32).max(1);
+        let h = ((luma.height() as f64 * scale) as u32).max(1);
+        resize(&luma, w, h, FilterType::Triangle)
+    } else {
+        luma
+    };
+    let mut prepared = rqrr::PreparedImage::prepare(luma);
+    let mut codes: Vec<(i32, String)> = prepared
+        .detect_grids()
+        .into_iter()
+        .filter_map(|grid| {
+            let top = grid.bounds.iter().map(|p| p.y).min().unwrap_or(0);
+            grid.decode().ok().map(|(_, text)| (top, text))
+        })
+        .filter(|(_, text)| !text.trim().is_empty())
+        .collect();
+    codes.sort_by_key(|(top, _)| *top);
+    codes.into_iter().map(|(_, text)| text).collect()
 }
 
 pub fn extract(img: &RgbaImage) -> Result<String, String> {

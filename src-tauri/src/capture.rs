@@ -13,7 +13,9 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect, IsZoomed};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, GetWindowRect, IsZoomed, SPI_GETDESKWALLPAPER, SystemParametersInfoW,
+};
 use xcap::Monitor;
 
 pub fn fullscreen() -> Result<RgbaImage, Box<dyn Error>> {
@@ -77,10 +79,20 @@ impl BackgroundCache {
         let fresh = matches!(&self.0, Some((p, m, _)) if p == path && *m == modified);
         if !fresh {
             self.0 = None;
-            self.0 = Some((path.to_string(), modified, image::open(path)?));
+            self.0 = Some((path.to_string(), modified, image::ImageReader::open(path)?.with_guessed_format()?.decode()?));
         }
         Ok(self.0.as_ref().map(|(_, _, img)| img))
     }
+}
+
+pub fn wallpaper() -> String {
+    let mut buf = [0u16; 260];
+    let ok = unsafe { SystemParametersInfoW(SPI_GETDESKWALLPAPER, buf.len() as u32, buf.as_mut_ptr() as *mut c_void, 0) };
+    if ok == 0 {
+        return String::new();
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..len])
 }
 
 pub fn unique_path(dir: &Path, ext: &str) -> PathBuf {

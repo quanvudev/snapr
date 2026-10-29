@@ -1,20 +1,45 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type BulkFailure, type GalleryItem } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "@/components/ui/toast";
+import { useSettingsContext } from "@/components/settings-provider";
+import { api, type BulkFailure, type GalleryItem, type Recognized } from "@/lib/api";
 import { fileName, groupBy, isViewable, matches, type Filter, type Period } from "@/lib/gallery";
 
+export type TextResult = { result?: Recognized; error?: string };
+
+const TILE_KEY = "gallery.tile";
+export const TILE = { min: 8, max: 20, initial: 12 };
+
+function storedTile() {
+  try {
+    const value = Number(localStorage.getItem(TILE_KEY));
+    return value >= TILE.min && value <= TILE.max ? value : TILE.initial;
+  } catch {
+    return TILE.initial;
+  }
+}
+
 export function useGallery() {
+  const { t } = useSettingsContext();
+  const title = useRef(t.galleryFailed);
+  title.current = t.galleryFailed;
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [period, setPeriod] = useState<Period>("day");
+  const [query, setQuery] = useState("");
+  const [tile, setTile] = useState(storedTile);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<GalleryItem[] | null>(null);
-  const [error, setError] = useState("");
+  const [textOpen, setTextOpen] = useState(false);
+  const [texts, setTexts] = useState<Map<string, TextResult>>(new Map());
 
-  const report = useCallback((e: unknown) => setError(String(e)), []);
+  const report = useCallback(
+    (e: unknown) => toast.add({ type: "error", title: title.current, description: String(e) }),
+    [],
+  );
 
   const reload = useCallback(() => {
     api
@@ -38,10 +63,22 @@ export function useGallery() {
     };
   }, [reload]);
 
-  const visible = items.filter((i) => matches(i, filter));
+  const visible = items.filter((i) => matches(i, filter, query));
   const viewable = visible.filter(isViewable);
   const index = viewable.findIndex((i) => i.path === viewing);
   const viewer = index < 0 ? null : { item: viewable[index], index, count: viewable.length };
+  const textPath = textOpen && viewer?.item.kind === "photo" ? viewer.item.path : null;
+
+  useEffect(() => {
+    if (!textPath || texts.has(textPath)) return;
+    const store = (result: TextResult) => setTexts((prev) => new Map(prev).set(textPath, result));
+    store({});
+    api
+      .galleryText(textPath)
+      .then((result) => store({ result }))
+      .catch((e) => store({ error: String(e) }));
+  }, [textPath, texts]);
+
   const selectedItems = visible.filter((i) => selected.has(i.path));
   const photos = selectedItems.filter((i) => i.kind === "photo");
 
@@ -86,6 +123,22 @@ export function useGallery() {
     });
   };
 
+  const selectGroup = (group: GalleryItem[], on: boolean) => {
+    setSelectMode(true);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      group.forEach((item) => (on ? next.add(item.path) : next.delete(item.path)));
+      return next;
+    });
+  };
+
+  const changeTile = (next: number) => {
+    setTile(next);
+    try {
+      localStorage.setItem(TILE_KEY, String(next));
+    } catch {}
+  };
+
   const selectRange = (item: GalleryItem) => {
     const to = visible.findIndex((i) => i.path === item.path);
     const from = anchor ? visible.findIndex((i) => i.path === anchor) : -1;
@@ -109,7 +162,6 @@ export function useGallery() {
   };
 
   const run = (p: Promise<unknown>) => {
-    setError("");
     p.catch(report);
   };
 
@@ -122,7 +174,6 @@ export function useGallery() {
     const targets = pendingDelete;
     if (!targets?.length) return;
     setPendingDelete(null);
-    setError("");
     let failures: BulkFailure[];
     try {
       failures = await api.galleryDeleteMany(targets.map((item) => item.path));
@@ -140,7 +191,7 @@ export function useGallery() {
       return next;
     });
     if (failures.length) {
-      setError(failures.map((failure) => `${fileName(failure.path)}: ${failure.error}`).join(" · "));
+      report(failures.map((failure) => `${fileName(failure.path)}: ${failure.error}`).join(" · "));
     }
   };
 
@@ -162,9 +213,18 @@ export function useGallery() {
     items: viewable,
     visible,
     groups: groupBy(visible, period),
-    empty: visible.length === 0,
+    empty: items.length === 0,
+    noMatch: items.length > 0 && visible.length === 0,
     filter,
     setFilter: changeFilter,
+    query,
+    setQuery,
+    resetFilters: () => {
+      setQuery("");
+      changeFilter("all");
+    },
+    tile,
+    setTile: changeTile,
     period,
     setPeriod: changePeriod,
     collapsed,
@@ -176,9 +236,14 @@ export function useGallery() {
       }),
     viewer,
     view: (item: GalleryItem) => setViewing(item.path),
-    closeViewer: () => setViewing(null),
+    closeViewer: () => {
+      setViewing(null);
+      setTextOpen(false);
+    },
+    text: textPath ? (texts.get(textPath) ?? {}) : null,
+    toggleText: () => setTextOpen((open) => !open),
+    closeText: () => setTextOpen(false),
     step,
-    error,
     selected,
     selectMode,
     setSelectMode: changeSelectMode,
@@ -188,6 +253,7 @@ export function useGallery() {
     addSelected,
     toggleSelect,
     selectRange,
+    selectGroup,
     selectAll,
     clearSelection,
     pendingDelete,
@@ -198,8 +264,11 @@ export function useGallery() {
       reveal: (item: GalleryItem) => run(api.galleryReveal(item.path)),
       copy: (item: GalleryItem) => run(api.galleryCopy(item.path)),
       copySelected,
+      extractText: (item: GalleryItem) => {
+        setViewing(item.path);
+        setTextOpen(true);
+      },
       pin: (item: GalleryItem) => {
-        setError("");
         api
           .galleryPin(item.path)
           .then(() => api.hide())
