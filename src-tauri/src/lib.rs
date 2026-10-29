@@ -13,6 +13,7 @@ mod ring;
 mod settings;
 mod toast;
 mod toolbar;
+mod update;
 
 use config::Config;
 use image::RgbaImage;
@@ -89,7 +90,11 @@ pub struct State {
     proxy: Mutex<EventLoopProxy<Action>>,
     recording: Mutex<Option<Recorder>>,
     download: Mutex<Option<paddle::Download>>,
+    counting: AtomicBool,
+    update: Mutex<update::Updater>,
+    menu: Menu<tauri::Wry>,
     stop: MenuItem<tauri::Wry>,
+    upgrade: MenuItem<tauri::Wry>,
 }
 
 fn tooltip(app: &AppHandle, text: &str) {
@@ -524,6 +529,7 @@ impl Snap {
         let countdown = state.cfg.read().unwrap().record_countdown;
         if countdown && let Some(digit) = frame::Digit::open(event_loop, bounds, COUNTDOWN) {
             self.countdown = Some(Countdown { target, area, step: COUNTDOWN, next: Instant::now() + TICK, digit: Some(digit) });
+            state.counting.store(true, Ordering::Relaxed);
             let _ = state.stop.set_enabled(true);
             tooltip(&self.app, "Snapr: recording starts…");
             return;
@@ -552,6 +558,7 @@ impl Snap {
         } else if countdown.digit.take().is_some() {
             countdown.next = now + SETTLE;
         } else if let Some(Countdown { target, area, .. }) = self.countdown.take() {
+            self.app.state::<State>().counting.store(false, Ordering::Relaxed);
             self.start(event_loop, target, area);
         }
     }
@@ -560,6 +567,7 @@ impl Snap {
         if self.countdown.take().is_none() {
             return false;
         }
+        self.app.state::<State>().counting.store(false, Ordering::Relaxed);
         self.pins.show_recording();
         ended(&self.app);
         true
@@ -714,13 +722,16 @@ pub(crate) fn show_settings(app: &AppHandle, section: &str) {
     let _ = app.emit_to("main", "settings-open", section);
 }
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+fn tray_menu(app: &AppHandle, stop: &MenuItem<tauri::Wry>) -> tauri::Result<Menu<tauri::Wry>> {
     let gallery = MenuItem::with_id(app, "gallery", "Gallery", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open folder", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let stop = &app.state::<State>().stop;
-    let menu = Menu::with_items(app, &[&gallery, &settings, &open, stop, &quit])?;
+    Menu::with_items(app, &[&gallery, &settings, &open, stop, &quit])
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = app.state::<State>().menu.clone();
     let mut tray = TrayIconBuilder::with_id("main").tooltip("Snapr").menu(&menu);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -737,6 +748,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.state::<State>().proxy.lock().unwrap().send_event(Action::CancelCountdown);
             }
         }
+        "update" => update::from_tray(app),
         "quit" => {
             stop_recording(app);
             app.exit(0);
@@ -754,6 +766,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("thumb", gallery::thumb_scheme())
         .register_asynchronous_uri_scheme_protocol("media", gallery::media_scheme)
         .setup(|app| {
@@ -764,6 +777,8 @@ pub fn run() {
             let proxy = spawn_capture(handle.clone());
             mouse::start(proxy.clone());
             let stop = MenuItem::with_id(app, "stop", "Stop recording", false, None::<&str>)?;
+            let upgrade = MenuItem::with_id(app, "update", "Update", true, None::<&str>)?;
+            let menu = tray_menu(&handle, &stop)?;
             app.manage(State {
                 path,
                 cfg: RwLock::new(cfg),
@@ -773,10 +788,15 @@ pub fn run() {
                 proxy: Mutex::new(proxy),
                 recording: Mutex::new(None),
                 download: Mutex::new(None),
+                counting: AtomicBool::new(false),
+                update: Mutex::new(update::Updater::default()),
+                menu,
                 stop,
+                upgrade,
             });
             build_tray(&handle)?;
             apply(&handle);
+            update::start(&handle);
             if first_run {
                 show_splash(&handle);
             }
@@ -815,7 +835,10 @@ pub fn run() {
             paddle::paddle_status,
             paddle::paddle_download,
             paddle::paddle_cancel,
-            paddle::paddle_delete
+            paddle::paddle_delete,
+            update::update_status,
+            update::update_check,
+            update::update_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

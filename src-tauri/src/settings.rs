@@ -181,9 +181,13 @@ pub fn save(app: AppHandle, mut config: Config, autostart: bool) -> Result<(), S
         autostart_set(autostart);
     }
     let _ = std::fs::create_dir_all(config.dir());
+    let enabled = config.update_check && !state.cfg.read().unwrap().update_check;
     *state.cfg.write().unwrap() = config;
     state.probe.lock().unwrap().clear();
     crate::apply(&app);
+    if enabled {
+        crate::update::enabled(&app);
+    }
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Snapr",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "identifier": "com.quanvudev.snapr",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -32,16 +32,33 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "publisher": "Jun",
     "copyright": "© 2026 Jun",
-    "homepage": "https://github.com/quanvudev/snapr",
+    "homepage": "https://github.com/quanvudev/snapr-releases",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkyRDVDMEQ1QjE2N0E3N0IKUldSN3AyZXgxY0RWa2h3UElnM0J1cW4yM21JMStaelJxQkNCeTBNbmczaHFmNnNnRDlYdGF2WmYK",
+      "endpoints": [
+        "https://github.com/quanvudev/snapr-releases/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

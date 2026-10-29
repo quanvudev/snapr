@@ -4,6 +4,7 @@ import { defaultCombos, SLOTS } from "@/lib/hotkeys";
 import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 import { usePaddle } from "./use-paddle";
+import { useUpdate } from "./use-update";
 
 export type View = "splash" | "setup" | "settings";
 export type SectionId = "gallery" | "settings" | "ring";
@@ -19,6 +20,7 @@ export function useSettings() {
   const [view, setView] = useState<View>("settings");
   const [section, setSection] = useState<SectionId>("settings");
   const [version, setVersion] = useState("");
+  const [group, setGroup] = useState<string | null>(null);
   const firstLoad = useRef(true);
   const timer = useRef<number>(0);
 
@@ -44,7 +46,9 @@ export function useSettings() {
       setFailed(false);
       if (fromEvent) {
         clearTimeout(timer.current);
-        setSection((openSection as SectionId) || "settings");
+        const about = openSection === "about";
+        setSection(about ? "settings" : (openSection as SectionId) || "settings");
+        setGroup(about ? "about" : null);
         setView(s.first_run ? "setup" : "settings");
       } else if (firstLoad.current) {
         firstLoad.current = false;
@@ -76,6 +80,7 @@ export function useSettings() {
     setWindowsOcr(s.windows_ocr);
   }, []);
   const paddle = usePaddle(reloadOcr);
+  const updater = useUpdate();
 
   const outputDir = cfg?.output_dir;
   useEffect(() => {
@@ -134,6 +139,9 @@ export function useSettings() {
     ocr,
     windowsOcr,
     paddle,
+    updater,
+    group,
+    setGroup,
     textActive,
     rows,
     failed,

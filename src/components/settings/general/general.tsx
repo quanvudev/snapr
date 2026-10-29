@@ -6,6 +6,7 @@ import { LanguageRow } from "./language-row";
 import { PreviewRow } from "./preview-row";
 import { StartupRow } from "./startup-row";
 import { ThemeRow } from "./theme-row";
+import { UpdateCheckRow } from "./update-check-row";
 
 const heading = (s: string) => <h3 className="px-1 text-xs font-medium text-muted-foreground">{s}</h3>;
 
@@ -24,6 +25,7 @@ export function General() {
         <StartupRow />
         <LanguageRow />
         <ThemeRow />
+        <UpdateCheckRow />
       </ItemGroup>
     </>
   );

@@ -22,6 +22,7 @@ export type Config = {
   text_capture: boolean;
   ocr_engine: OcrEngine;
   paddle_model: PaddleSize;
+  update_check: boolean;
   padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number; wallpaper: boolean };
   language: "vi" | "en";
   theme: Theme;
@@ -33,6 +34,8 @@ export type Loaded = { config: Config; autostart: boolean; dir: string; first_ru
 export type PaddleProgress = { size: PaddleSize; done: number; total: number };
 export type PaddleStatus = { ready: PaddleSize[]; bytes: Record<PaddleSize, number>; downloading: PaddleProgress | null; runtime: boolean };
 export type PaddleDone = { size: PaddleSize; error: string | null };
+export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
+export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
 export type InstalledApp = { name: string; path: string };
 export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other" };
 export type BulkFailure = { path: string; error: string };
@@ -68,6 +71,10 @@ export const api = {
   paddleDelete: (size: PaddleSize) => invoke("paddle_delete", { size }),
   onPaddleProgress: (cb: (p: PaddleProgress) => void) => listen<PaddleProgress>("paddle-progress", (e) => cb(e.payload)),
   onPaddleDone: (cb: (d: PaddleDone) => void) => listen<PaddleDone>("paddle-done", (e) => cb(e.payload)),
+  updateStatus: () => invoke<UpdateStatus>("update_status"),
+  updateCheck: () => invoke("update_check"),
+  updateInstall: () => invoke("update_install"),
+  onUpdateStatus: (cb: (s: UpdateStatus) => void) => listen<UpdateStatus>("update-status", (e) => cb(e.payload)),
   listApps: () => invoke<InstalledApp[]>("list_apps"),
   ringIcon: (path: string) => invoke<ArrayBuffer>("ring_icon", { path }),
   thumbSrc: (path: string) => convertFileSrc(path, "thumb"),

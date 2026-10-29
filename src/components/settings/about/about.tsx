@@ -4,6 +4,7 @@ import { useSettingsContext } from "@/components/settings-provider";
 import { api } from "@/lib/api";
 import { APP_INFO } from "@/lib/app-info";
 import icon from "../../../../src-tauri/icons/128x128.png";
+import { UpdateRow } from "./update-row";
 
 export function About() {
   const { cfg, t, version } = useSettingsContext();
@@ -17,6 +18,7 @@ export function About() {
         </div>
       </div>
       <ItemGroup className="gap-3">
+        <UpdateRow />
         <Item variant="muted">
           <ItemContent>
             <ItemTitle>{t.author}</ItemTitle>

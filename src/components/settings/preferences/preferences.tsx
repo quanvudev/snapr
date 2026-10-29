@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { T } from "@/lib/i18n";
@@ -18,9 +19,15 @@ const GROUPS: { title: keyof (typeof T)["en"]; component: () => React.ReactNode 
 ];
 
 export function Preferences() {
-  const { t } = useSettingsContext();
+  const { t, group, setGroup } = useSettingsContext();
   const jump = (title: string) =>
     document.getElementById(`group-${title}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  useEffect(() => {
+    if (!group) return;
+    jump(group);
+    setGroup(null);
+  }, [group, setGroup]);
 
   return (
     <div className="space-y-8">

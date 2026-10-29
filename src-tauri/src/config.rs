@@ -173,6 +173,7 @@ pub struct Config {
     pub ocr_engine: OcrEngine,
     #[serde(default)]
     pub paddle_model: PaddleSize,
+    pub update_check: bool,
     pub padding: Padding,
     pub hotkeys: Hotkeys,
     pub ring: Ring,
@@ -237,6 +238,7 @@ impl Default for Config {
             text_capture: true,
             ocr_engine: OcrEngine::Windows,
             paddle_model: PaddleSize::Small,
+            update_check: true,
             padding: Padding::default(),
             hotkeys: Hotkeys::default(),
             ring: Ring::default(),
