@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,7 +40,8 @@ const key = process.env.TAURI_SIGNING_PRIVATE_KEY ?? readFileSync(join(keyDir, "
 const password = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? readFileSync(join(keyDir, "snapr.key.password"), "utf8").trim();
 
 console.log(`release: building ${tag}`);
-run("bun", ["run", "tauri", "build"], { TAURI_SIGNING_PRIVATE_KEY: key, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password });
+const signing = { TAURI_SIGNING_PRIVATE_KEY: key, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password };
+run("bun", ["run", "tauri", "build"], signing);
 
 const name = `Snapr_${version}_x64-setup.exe`;
 const installer = join(root, "src-tauri/target/release/bundle/nsis", name);
@@ -50,7 +51,12 @@ const platform = {
   signature: readFileSync(`${installer}.sig`, "utf8").trim(),
   url: `https://github.com/${REPO}/releases/download/${tag}/${name}`,
 };
-const latest = join(mkdtempSync(join(tmpdir(), "snapr-release-")), "latest.json");
+const out = mkdtempSync(join(tmpdir(), "snapr-release-"));
+const exe = join(out, `Snapr_${version}_x64.exe`);
+copyFileSync(join(root, "src-tauri/target/release/snapr-v2.exe"), exe);
+run("bun", ["run", "tauri", "signer", "sign", exe], signing);
+if (!existsSync(`${exe}.sig`)) fail(`${exe}.sig is missing`);
+const latest = join(out, "latest.json");
 writeFileSync(
   latest,
   JSON.stringify(
@@ -66,5 +72,6 @@ writeFileSync(
 );
 
 console.log(`release: publishing ${tag} to ${REPO}`);
-run(gh, ["release", "create", tag, "-R", REPO, "--target", "main", "--latest", "--title", `Snapr ${tag}`, "--notes", notes, installer, `${installer}.sig`, latest]);
+run(gh, ["release", "create", tag, "-R", REPO, "--target", "main", "--latest", "--title", `Snapr ${tag}`, "--notes", notes, installer, `${installer}.sig`, exe, `${exe}.sig`, latest]);
 console.log(`release: done, https://github.com/${REPO}/releases/tag/${tag}`);
+run("bun", ["scripts/scoop.ts", version, exe, gh]);

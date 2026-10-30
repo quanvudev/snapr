@@ -2,6 +2,7 @@ use crate::State;
 use crate::config::{Config, Hotkeys, RING_SLOT, SLOTS, is_mouse, parse_hotkey, skipped};
 use serde::Serialize;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager};
@@ -56,13 +57,21 @@ fn autostart_get() -> bool {
     found
 }
 
+fn scoop_current(exe: &Path) -> Option<PathBuf> {
+    let version = exe.parent()?;
+    let app = version.parent()?;
+    let current = app.join("current");
+    let apps = app.parent()?.file_name()?.eq_ignore_ascii_case("apps");
+    (apps && version.file_name()? != "current" && current.is_dir()).then(|| current.join(exe.file_name().unwrap_or_default()))
+}
+
 fn autostart_set(on: bool) {
     let Some(key) = run_key(KEY_SET_VALUE) else { return };
     let name = wide(RUN_VALUE);
     unsafe {
         if on {
             if let Ok(exe) = std::env::current_exe() {
-                let data = wide(&format!("\"{}\"", exe.display()));
+                let data = wide(&format!("\"{}\"", scoop_current(&exe).unwrap_or(exe).display()));
                 RegSetValueExW(key, name.as_ptr(), 0, REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32);
             }
         } else {

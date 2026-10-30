@@ -343,7 +343,7 @@ fn fetch_size(root: &Path, size: PaddleSize, fetch: &mut Fetch) -> Result<(), St
     dict
 }
 
-fn agent() -> ureq::Agent {
+pub fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_per_read(Some(Duration::from_secs(30)))
