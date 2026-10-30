@@ -2,6 +2,14 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.9.0] - 2026-10-30
+
+### Added
+- Install with Scoop: `scoop bucket add snapr https://github.com/quanvudev/snapr-releases`, then `scoop install snapr/snapr`. Scoop copies get the same in-app updates, and Start with Windows keeps working after `scoop update`. Uninstalling with Scoop removes the Start with Windows entry and keeps your settings and captures.
+
+### Changed
+- Updates install faster and without an installer window: Snapr downloads the new version, checks its signature, swaps itself in place and restarts in the tray. Settings, captures, OCR models and Start with Windows are kept.
+
 ## [1.8.0] - 2026-10-29
 
 ### Added
