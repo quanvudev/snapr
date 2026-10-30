@@ -20,8 +20,10 @@ use windows_sys::Win32::Graphics::Gdi::{
     DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
     ReleaseDC, SelectObject,
 };
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowThreadProcessId, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
     SW_SHOWNORMAL, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, ULW_ALPHA, UpdateLayeredWindow, WS_EX_LAYERED,
     WS_EX_TOOLWINDOW,
 };
@@ -370,12 +372,30 @@ pub struct Ring {
     idle: Option<Duration>,
     closing: Option<Closing>,
     frame: Instant,
+    focused: bool,
 }
 
 struct Closing {
     started: Instant,
     from: f32,
     picked: Option<Entry>,
+}
+
+fn activate(hwnd: isize) {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let ours = GetCurrentThreadId();
+        let theirs = if foreground.is_null() { 0 } else { GetWindowThreadProcessId(foreground, std::ptr::null_mut()) };
+        let attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0;
+        SetForegroundWindow(hwnd as _);
+        if attached {
+            AttachThreadInput(ours, theirs, 0);
+        }
+    }
+}
+
+fn pressed() -> bool {
+    [VK_LBUTTON, VK_RBUTTON].iter().any(|&key| unsafe { GetAsyncKeyState(key.into()) } as u16 & 0x8000 != 0)
 }
 
 impl Ring {
@@ -427,12 +447,13 @@ impl Ring {
             idle,
             closing: None,
             frame: now,
+            focused: false,
         };
         ring.draw();
         unsafe {
             ShowWindow(hwnd as _, SW_SHOW);
-            SetForegroundWindow(hwnd as _);
         }
+        activate(hwnd);
         Some(ring)
     }
 
@@ -516,6 +537,11 @@ impl Ring {
         self.frame = now;
         let hover = self.cursor_hit();
         let changed = self.set_hover_state(hover);
+        let foreground = unsafe { GetForegroundWindow() } as isize == self.hwnd;
+        self.focused |= foreground;
+        if self.closing.is_none() && self.opened.elapsed() >= FOCUS_GRACE && ((self.focused && !foreground) || (hover.is_none() && pressed())) {
+            self.begin_close(None);
+        }
         if self.hover.is_some() {
             self.active = now;
         } else if self.idle.is_some_and(|idle| self.active.elapsed() >= idle) {
