@@ -2,6 +2,11 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.9.1] - 2026-10-30
+
+### Fixed
+- The action ring now closes when you click outside it or switch to another window, including when it was opened with a mouse button and did not get focus.
+
 ## [1.9.0] - 2026-10-30
 
 ### Added
