@@ -11,8 +11,10 @@ import { TILE, useGallery } from "@/hooks/use-gallery";
 import { formatGroup, type Filter, type Period } from "@/lib/gallery";
 import { cn } from "@/lib/utils";
 import { BulkBar } from "./bulk-bar";
+import { CompressDialog } from "./compress-dialog";
 import { DeleteDialog } from "./delete-dialog";
 import { GalleryGroup } from "./gallery-group";
+import { GifDialog } from "./gif-dialog";
 import { Viewer } from "./viewer";
 
 export function Gallery() {
@@ -56,10 +58,13 @@ export function Gallery() {
           {...g.viewer}
           items={g.items}
           actions={g.actions}
-          paused={!!g.pendingDelete}
+          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget}
           text={g.text}
           onToggleText={g.toggleText}
           onCloseText={g.closeText}
+          transcriptOpen={!!g.transcriptVideo}
+          onToggleTranscript={g.toggleTranscript}
+          onCloseTranscript={g.closeTranscript}
           onStep={g.step}
           onSelect={g.view}
           origin={origin}
@@ -199,15 +204,26 @@ export function Gallery() {
             <BulkBar
               count={g.selectedCount}
               photos={g.photosSelected}
+              videos={g.videosSelected}
               onSelectAll={g.selectAll}
               onDelete={g.actions.deleteSelected}
               onCopy={g.actions.copySelected}
               onPin={g.actions.pinSelected}
+              onExportGif={g.actions.exportGifSelected}
+              onCompress={g.actions.compressSelected}
+              onTranscribe={g.actions.transcribeSelected}
               onCancel={g.clearSelection}
             />
           )}
         </div>
       </div>
+      <GifDialog item={g.gifTarget} onClose={g.closeGif} onExport={g.actions.exportGif} />
+      <CompressDialog
+        item={g.compressTarget}
+        onClose={g.closeCompress}
+onCompress={g.actions.compress}
+        onError={g.actions.compressFailed}
+      />
       <DeleteDialog items={g.pendingDelete} onCancel={g.cancelDelete} onConfirm={g.confirmDelete} />
     </div>
   );

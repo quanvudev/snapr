@@ -2,7 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
 import { api, type BulkFailure, type GalleryItem, type Recognized } from "@/lib/api";
-import { fileName, groupBy, isViewable, matches, type Filter, type Period } from "@/lib/gallery";
+import { fileName, groupBy, isMp4, isViewable, matches, type Filter, type Period } from "@/lib/gallery";
+import {
+  compressSpec,
+  gifSpec,
+  loadCompressChoice,
+  loadGifPreset,
+  saveCompressChoice,
+  saveGifPreset,
+  taskError,
+  transcribeSpec,
+  type CompressChoice,
+  type GifRange,
+} from "@/lib/queue";
 
 export type TextResult = { result?: Recognized; error?: string };
 
@@ -22,6 +34,8 @@ export function useGallery() {
   const { t } = useSettingsContext();
   const title = useRef(t.galleryFailed);
   title.current = t.galleryFailed;
+  const strings = useRef(t);
+  strings.current = t;
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [period, setPeriod] = useState<Period>("day");
@@ -33,8 +47,11 @@ export function useGallery() {
   const [selectMode, setSelectMode] = useState(false);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<GalleryItem[] | null>(null);
+  const [gifTarget, setGifTarget] = useState<GalleryItem | null>(null);
+  const [compressTarget, setCompressTarget] = useState<GalleryItem | null>(null);
   const [textOpen, setTextOpen] = useState(false);
   const [texts, setTexts] = useState<Map<string, TextResult>>(new Map());
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const report = useCallback(
     (e: unknown) => toast.add({ type: "error", title: title.current, description: String(e) }),
@@ -68,6 +85,7 @@ export function useGallery() {
   const index = viewable.findIndex((i) => i.path === viewing);
   const viewer = index < 0 ? null : { item: viewable[index], index, count: viewable.length };
   const textPath = textOpen && viewer?.item.kind === "photo" ? viewer.item.path : null;
+  const transcriptVideo = transcriptOpen && viewer && isMp4(viewer.item) ? viewer.item : null;
 
   useEffect(() => {
     if (!textPath || texts.has(textPath)) return;
@@ -81,6 +99,7 @@ export function useGallery() {
 
   const selectedItems = visible.filter((i) => selected.has(i.path));
   const photos = selectedItems.filter((i) => i.kind === "photo");
+  const videos = selectedItems.filter((i) => isMp4(i));
 
   const clearSelection = () => {
     setSelected(new Set());
@@ -195,6 +214,50 @@ export function useGallery() {
     }
   };
 
+  const exportGif = (item: GalleryItem, range: GifRange) => {
+    setGifTarget(null);
+    saveGifPreset(range.preset);
+    run(api.queueAdd(gifSpec(item.path, range.preset, range.startMs, range.endMs)));
+  };
+
+  const compress = (item: GalleryItem, choice: CompressChoice) => {
+    setCompressTarget(null);
+    saveCompressChoice(choice);
+    run(api.queueAdd(compressSpec(item.path, choice)));
+  };
+
+  const compressFailed = (e: unknown) => {
+    setCompressTarget(null);
+    report(e);
+  };
+
+  const compressSelected = () => {
+    if (!videos.length) return;
+    const choice = loadCompressChoice();
+    run(
+      (async () => {
+        for (const item of videos) await api.queueAdd(compressSpec(item.path, choice));
+      })(),
+    );
+  };
+
+  const exportGifSelected = () => {
+    if (!videos.length) return;
+    const preset = loadGifPreset();
+    run(
+      (async () => {
+        for (const item of videos) await api.queueAdd(gifSpec(item.path, preset, 0, null));
+      })(),
+    );
+  };
+
+  const transcribeAll = (targets: GalleryItem[]) => {
+    if (!targets.length) return;
+    (async () => {
+      for (const item of targets) await api.queueAdd(transcribeSpec(item.path));
+    })().catch((e) => report(taskError(strings.current, e)));
+  };
+
   const deleteSelected = () => {
     if (selectedItems.length) setPendingDelete(selectedItems);
   };
@@ -239,7 +302,11 @@ export function useGallery() {
     closeViewer: () => {
       setViewing(null);
       setTextOpen(false);
+      setTranscriptOpen(false);
     },
+    transcriptVideo,
+    toggleTranscript: () => setTranscriptOpen((open) => !open),
+    closeTranscript: () => setTranscriptOpen(false),
     text: textPath ? (texts.get(textPath) ?? {}) : null,
     toggleText: () => setTextOpen((open) => !open),
     closeText: () => setTextOpen(false),
@@ -250,6 +317,11 @@ export function useGallery() {
     selectedItems,
     selectedCount: selectedItems.length,
     photosSelected: photos.length > 0,
+    videosSelected: videos.length > 0,
+    gifTarget,
+    closeGif: () => setGifTarget(null),
+    compressTarget,
+    closeCompress: () => setCompressTarget(null),
     addSelected,
     toggleSelect,
     selectRange,
@@ -275,6 +347,15 @@ export function useGallery() {
           .catch(report);
       },
       pinSelected,
+      openGif: (item: GalleryItem) => setGifTarget(item),
+      exportGif,
+      exportGifSelected,
+      openCompress: (item: GalleryItem) => setCompressTarget(item),
+      compress,
+      compressFailed,
+      compressSelected,
+      transcribe: (item: GalleryItem) => transcribeAll([item]),
+      transcribeSelected: () => transcribeAll(videos),
       deleteSelected,
       remove: (item: GalleryItem) => setPendingDelete([item]),
     },

@@ -96,12 +96,16 @@ pub fn wallpaper() -> String {
 }
 
 pub fn unique_path(dir: &Path, ext: &str) -> PathBuf {
-    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let mut path = dir.join(format!("{stamp}.{ext}"));
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+    stem_path(dir, &stamp, ext)
+}
+
+pub fn stem_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    let mut path = dir.join(format!("{stem}.{ext}"));
     let mut n = 0;
     while path.exists() {
         n += 1;
-        path = dir.join(format!("{stamp}_{n}.{ext}"));
+        path = dir.join(format!("{stem}_{n}.{ext}"));
     }
     path
 }

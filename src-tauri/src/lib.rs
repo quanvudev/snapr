@@ -5,17 +5,23 @@ mod config;
 mod draw;
 mod frame;
 mod gallery;
+mod gif;
 mod mouse;
 mod ocr;
+mod onnx;
 mod overlay;
 mod paddle;
 mod pin;
+mod queue;
 mod recorder;
 mod ring;
 mod settings;
 mod toast;
 mod toolbar;
+mod transcript;
 mod update;
+mod video;
+mod whisper;
 
 use config::Config;
 use image::RgbaImage;
@@ -53,7 +59,7 @@ enum Action {
     Ring,
     Pin(PathBuf),
     PinMany(Vec<PathBuf>),
-    Recorded(RgbaImage, PathBuf),
+    Recorded(RgbaImage, PathBuf, bool),
     RecordFailed(String),
     CancelCountdown,
     RecordPick(config::RecordMode),
@@ -93,6 +99,7 @@ pub struct State {
     proxy: Mutex<EventLoopProxy<Action>>,
     recording: Mutex<Option<Recorder>>,
     download: Mutex<Option<paddle::Download>>,
+    whisper_download: Mutex<Option<whisper::Download>>,
     counting: AtomicBool,
     discard: AtomicBool,
     update: Mutex<update::Updater>,
@@ -102,6 +109,7 @@ pub struct State {
     upgrade: MenuItem<tauri::Wry>,
     panel: Mutex<panel::Panel>,
     capture: Mutex<Option<audio::Capture>>,
+    queue: queue::Queue,
 }
 
 pub(crate) fn tooltip(app: &AppHandle, text: &str) {
@@ -188,16 +196,16 @@ pub(crate) fn trigger(app: &AppHandle, action: &Action) {
 
 fn record(app: &AppHandle, target: Target) -> bool {
     let state = app.state::<State>();
-    let (dir, fps) = {
+    let (dir, fps, quality) = {
         let cfg = state.cfg.read().unwrap();
-        (cfg.dir(), cfg.fps())
+        (cfg.dir(), cfg.fps(), cfg.quality())
     };
     let proxy = state.proxy.lock().unwrap().clone();
     let mut capture = panel::audio(app);
     let chunks = capture.as_mut().filter(|c| c.has_audio()).and_then(audio::Capture::chunks);
     let started = std::fs::create_dir_all(&dir)
         .map_err(|e| e.to_string())
-        .and_then(|_| Recorder::start(proxy, target, capture::unique_path(&dir, "mp4"), fps, chunks));
+        .and_then(|_| Recorder::start(proxy, target, capture::unique_path(&dir, "mp4"), fps, quality, chunks));
     match started {
         Ok(recorder) => {
             *state.recording.lock().unwrap() = Some(recorder);
@@ -576,13 +584,24 @@ impl ApplicationHandler<Action> for Snap {
                 let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path, true);
             }
-            Action::Recorded(img, path) => {
+            Action::Recorded(img, path, has_audio) => {
                 self.frame = None;
                 self.pins.show_recording();
                 ended(&self.app);
                 if self.app.state::<State>().discard.swap(false, Ordering::Relaxed) {
                     let _ = std::fs::remove_file(&path);
                     return;
+                }
+                let (compress, height, quality, transcribe) = {
+                    let state = self.app.state::<State>();
+                    let cfg = state.cfg.read().unwrap();
+                    (cfg.record_compress, cfg.compress_height(), cfg.quality(), cfg.record_transcribe)
+                };
+                if transcribe && has_audio {
+                    self.queue_transcript(&path);
+                }
+                if compress {
+                    video::compress_recording(&self.app, path.clone(), height, quality);
                 }
                 let _ = self.app.emit_to("main", "gallery-changed", ());
                 self.preview(event_loop, &img, path, false);
@@ -599,6 +618,13 @@ impl ApplicationHandler<Action> for Snap {
 }
 
 impl Snap {
+    fn queue_transcript(&self, path: &std::path::Path) {
+        let Some(path) = path.to_str() else { return };
+        if let Ok(task) = transcript::TranscribeTask::validated(&self.app, path) {
+            let _ = self.app.state::<State>().queue.add(&self.app, Box::new(task));
+        }
+    }
+
     fn panel_cancelled(&self) {
         let handle = self.app.clone();
         let _ = self.app.run_on_main_thread(move || panel::cancelled(&handle));
@@ -864,6 +890,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         "update" => update::from_tray(app),
         "quit" => {
             stop_recording(app);
+            queue::shutdown(app);
             app.exit(0);
         }
         _ => {}
@@ -902,6 +929,7 @@ pub fn run() {
                 proxy: Mutex::new(proxy),
                 recording: Mutex::new(None),
                 download: Mutex::new(None),
+                whisper_download: Mutex::new(None),
                 counting: AtomicBool::new(false),
                 discard: AtomicBool::new(false),
                 update: Mutex::new(update::Updater::default()),
@@ -911,7 +939,9 @@ pub fn run() {
                 upgrade,
                 panel: Mutex::new(panel::Panel::default()),
                 capture: Mutex::new(None),
+                queue: queue::Queue::default(),
             });
+            queue::spawn(handle.clone());
             build_tray(&handle)?;
             apply(&handle);
             update::start(&handle);
@@ -974,9 +1004,19 @@ pub fn run() {
             paddle::paddle_download,
             paddle::paddle_cancel,
             paddle::paddle_delete,
+            whisper::whisper_status,
+            whisper::whisper_download,
+            whisper::whisper_cancel,
+            whisper::whisper_delete,
+            transcript::transcript_read,
             update::update_status,
             update::update_check,
-            update::update_install
+            update::update_install,
+            queue::queue_add,
+            queue::queue_list,
+            queue::queue_cancel,
+            queue::queue_cancel_all,
+            video::compress_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

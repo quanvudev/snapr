@@ -1,5 +1,6 @@
 use crate::Action;
 use crate::audio::Chunk;
+use crate::video::{self, Quality};
 use image::RgbaImage;
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -28,7 +29,7 @@ pub(crate) enum Target {
 
 pub(crate) type Area = (u32, u32, u32, u32);
 
-type Flags = (Target, PathBuf, EventLoopProxy<Action>, u32, Option<Receiver<Chunk>>);
+type Flags = (Target, PathBuf, EventLoopProxy<Action>, u32, Quality, Option<Receiver<Chunk>>);
 
 struct Handler {
     encoder: Option<VideoEncoder>,
@@ -54,7 +55,7 @@ impl Handler {
         match encoder.finish() {
             Ok(()) => {
                 let thumbnail = self.thumbnail();
-                let _ = self.proxy.send_event(Action::Recorded(thumbnail, self.path.clone()));
+                let _ = self.proxy.send_event(Action::Recorded(thumbnail, self.path.clone(), self.audio.is_some()));
             }
             Err(e) => self.fail(e),
         }
@@ -120,7 +121,7 @@ impl GraphicsCaptureApiHandler for Handler {
     type Error = String;
 
     fn new(ctx: Context<Flags>) -> Result<Self, String> {
-        let (target, path, proxy, fps, audio) = ctx.flags;
+        let (target, path, proxy, fps, quality, audio) = ctx.flags;
         let item: GraphicsCaptureItemType = match target {
             Target::Window(hwnd) => Window::from_raw_hwnd(hwnd as *mut c_void).try_into().map_err(|e| format!("{e}")),
             Target::Monitor(hmonitor) | Target::Area { monitor: hmonitor, .. } => {
@@ -143,7 +144,10 @@ impl GraphicsCaptureApiHandler for Handler {
             return Err("window is too small".into());
         }
         let encoder = VideoEncoder::new(
-            VideoSettingsBuilder::new(size.0, size.1).sub_type(VideoSettingsSubType::H264).frame_rate(fps),
+            VideoSettingsBuilder::new(size.0, size.1)
+                .sub_type(VideoSettingsSubType::H264)
+                .frame_rate(fps)
+                .bitrate(video::bitrate(size.0, size.1, f64::from(fps), quality)),
             AudioSettingsBuilder::new().disabled(audio.is_none()),
             ContainerSettingsBuilder::new(),
             &path,
@@ -202,9 +206,10 @@ impl Recorder {
         target: Target,
         path: PathBuf,
         fps: u32,
+        quality: Quality,
         audio: Option<Receiver<Chunk>>,
     ) -> Result<Self, String> {
-        let flags = (target, path.clone(), proxy, fps, audio);
+        let flags = (target, path.clone(), proxy, fps, quality, audio);
         let started = match target {
             Target::Window(hwnd) => Handler::start_free_threaded(Settings::new(
                 Window::from_raw_hwnd(hwnd as *mut c_void),

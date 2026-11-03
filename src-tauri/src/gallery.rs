@@ -2,6 +2,7 @@ use crate::State;
 use crate::capture;
 use image::{ImageFormat, RgbaImage};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::os::windows::ffi::OsStrExt;
@@ -34,6 +35,7 @@ const THUMB_WORKERS: usize = 3;
 const THUMB_MAX_AGE: &str = "max-age=3600";
 const MEDIA_CHUNK: u64 = 1024 * 1024;
 const PNG_MIME: &str = "image/png";
+const SIDECAR_EXT: &str = "srt";
 
 #[derive(Serialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -79,12 +81,30 @@ pub struct BulkFailure {
     error: String,
 }
 
+fn sidecar_stem(path: &Path) -> Option<String> {
+    Some(path.file_stem()?.to_str()?.to_lowercase())
+}
+
+fn is_sidecar(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(SIDECAR_EXT))
+}
+
 fn list(dir: &Path) -> Vec<Item> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let entries: Vec<_> = entries.flatten().collect();
+    let video_stems: HashSet<String> = entries
+        .iter()
+        .map(|entry| entry.path())
+        .filter(|path| Kind::of(path) == Kind::Video)
+        .filter_map(|path| sidecar_stem(&path))
+        .collect();
     let mut items: Vec<Item> = entries
-        .flatten()
+        .iter()
         .filter_map(|entry| {
             let path = entry.path();
+            if is_sidecar(&path) && sidecar_stem(&path).is_some_and(|stem| video_stems.contains(&stem)) {
+                return None;
+            }
             let kind = Kind::of(&path);
             let meta = entry.metadata().ok().filter(|m| m.is_file())?;
             let modified = meta.modified().ok()?;
@@ -105,7 +125,7 @@ fn plain(path: &Path) -> Option<PathBuf> {
     })
 }
 
-fn guard(app: &AppHandle, path: &str) -> Option<PathBuf> {
+pub(crate) fn guard(app: &AppHandle, path: &str) -> Option<PathBuf> {
     let dir = app.state::<State>().cfg.read().unwrap().dir().canonicalize().ok()?;
     let file = Path::new(path).canonicalize().ok()?;
     if file.parent() != Some(dir.as_path()) || !file.is_file() {
@@ -266,7 +286,7 @@ pub fn gallery_pin_many(app: AppHandle, paths: Vec<String>) -> Result<(), String
         .map_err(|_| "pin failed".to_string())
 }
 
-fn delete_file(path: &Path) -> Result<(), String> {
+pub(crate) fn delete_file(path: &Path) -> Result<(), String> {
     let from: Vec<u16> = path.as_os_str().encode_wide().chain([0, 0]).collect();
     let mut op = SHFILEOPSTRUCTW {
         wFunc: FO_DELETE,
@@ -281,10 +301,21 @@ fn delete_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn delete_with_sidecar(path: &Path) -> Result<(), String> {
+    delete_file(path)?;
+    if Kind::of(path) == Kind::Video {
+        let sidecar = path.with_extension(SIDECAR_EXT);
+        if sidecar.is_file() {
+            let _ = delete_file(&sidecar);
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn gallery_delete(app: AppHandle, path: String) -> Result<(), String> {
     let path = guarded(&app, &path)?;
-    delete_file(&path)
+    delete_with_sidecar(&path)
 }
 
 #[tauri::command]
@@ -295,7 +326,7 @@ pub fn gallery_delete_many(app: AppHandle, paths: Vec<String>) -> Result<Vec<Bul
         .collect::<Result<Vec<_>, _>>()?;
     let mut failures = Vec::new();
     for (path, file) in validated {
-        if let Err(error) = delete_file(&file) {
+        if let Err(error) = delete_with_sidecar(&file) {
             failures.push(BulkFailure { path, error });
         }
     }

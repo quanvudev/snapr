@@ -14,12 +14,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/components/settings-provider";
 import { TitleBar } from "@/components/title-bar";
+import { useQueue } from "@/hooks/use-queue";
 import { APP_INFO } from "@/lib/app-info";
 import icon from "../../../src-tauri/icons/128x128.png";
 import { SECTIONS } from "./sections";
 
 export function Settings() {
   const { cfg, t, failed, version, section, setSection } = useSettingsContext();
+  useQueue();
   const sections = SECTIONS.filter((s) => s.id !== "ring" || cfg.ring.enabled);
   const current = sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "settings")!;
   const { component: Active, wide, fill } = current;

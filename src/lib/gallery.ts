@@ -27,6 +27,14 @@ export function matches(item: GalleryItem, filter: Filter, query: string) {
   return !q || fileName(item.path).toLowerCase().includes(q);
 }
 
+export function isMp4(item: GalleryItem) {
+  return item.path.toLowerCase().endsWith(".mp4");
+}
+
+export function isGif(item: GalleryItem) {
+  return item.path.toLowerCase().endsWith(".gif");
+}
+
 export function isViewable(item: GalleryItem) {
   return item.kind !== "other";
 }

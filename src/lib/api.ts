@@ -15,11 +15,19 @@ export type RingItem =
   | { kind: "app"; label: string; path: string; args: string; admin: boolean; key?: string | null };
 export type OcrEngine = "windows" | "paddle";
 export type PaddleSize = "tiny" | "small" | "medium";
+export type WhisperModel = "base" | "small" | "turbo";
+export type TranscriptLanguage = "auto" | "vi" | "en";
 export type Config = {
   output_dir: string;
   copy_to_clipboard: boolean;
   preview_seconds: number;
   record_fps: number;
+  record_quality: Quality;
+  record_compress: boolean;
+  record_compress_height: number;
+  record_transcribe: boolean;
+  whisper_model: WhisperModel;
+  transcript_language: TranscriptLanguage;
   record_countdown: boolean;
   record_mic: string;
   record_camera: string;
@@ -40,6 +48,10 @@ export type Loaded = { config: Config; autostart: boolean; dir: string; first_ru
 export type PaddleProgress = { size: PaddleSize; done: number; total: number };
 export type PaddleStatus = { ready: PaddleSize[]; bytes: Record<PaddleSize, number>; downloading: PaddleProgress | null; runtime: boolean };
 export type PaddleDone = { size: PaddleSize; error: string | null };
+export type WhisperProgress = { model: WhisperModel; done: number; total: number };
+export type WhisperStatus = { ready: WhisperModel[]; bytes: Record<WhisperModel, number>; downloading: WhisperProgress | null };
+export type WhisperDone = { model: WhisperModel; error: string | null };
+export type Segment = { start_ms: number; end_ms: number; text: string };
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
 export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
 export type InstalledApp = { name: string; path: string };
@@ -62,6 +74,47 @@ export type PanelState = {
 };
 
 export type Recognized = { qr: string[]; text: string };
+
+export type Quality = "low" | "medium" | "high";
+export type CompressHeight = 1080 | 720 | null;
+
+export type TaskSpec =
+  | {
+      kind: "gif";
+      path: string;
+      start_ms: number;
+      end_ms: number | null;
+      width: number | null;
+      fps: number;
+    }
+  | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
+  | { kind: "transcribe"; path: string };
+
+export type CompressInfo = {
+  width: number;
+  height: number;
+  fps: number;
+  duration_ms: number;
+  size: number;
+  estimates: { quality: string; height: number | null; bytes: number }[];
+};
+export type QueueItem = {
+  id: number;
+  kind: string;
+  name: string;
+  state: "waiting" | "running";
+  done: number;
+  total: number;
+  source: string | null;
+};
+export type QueueEnded = {
+  id: number;
+  kind: string;
+  name: string;
+  output: string | null;
+  error: string | null;
+  source: string | null;
+};
 
 export const api = {
   load: () => invoke<Loaded>("load"),
@@ -86,12 +139,27 @@ export const api = {
   galleryPinMany: (paths: string[]) => invoke("gallery_pin_many", { paths }),
   galleryDelete: (path: string) => invoke("gallery_delete", { path }),
   galleryDeleteMany: (paths: string[]) => invoke<BulkFailure[]>("gallery_delete_many", { paths }),
+  queueAdd: (spec: TaskSpec) => invoke<number>("queue_add", { spec }),
+  compressInfo: (path: string) => invoke<CompressInfo>("compress_info", { path }),
+  queueList:() => invoke<QueueItem[]>("queue_list"),
+  queueCancel: (id: number) => invoke("queue_cancel", { id }),
+  queueCancelAll: () => invoke("queue_cancel_all"),
+  onQueue: (cb: (items: QueueItem[]) => void) => listen<QueueItem[]>("queue", (e) => cb(e.payload)),
+  onQueueEnded: (cb: (ended: QueueEnded) => void) => listen<QueueEnded>("queue-ended", (e) => cb(e.payload)),
   paddleStatus: () => invoke<PaddleStatus>("paddle_status"),
   paddleDownload: (size: PaddleSize) => invoke("paddle_download", { size }),
   paddleCancel: () => invoke("paddle_cancel"),
   paddleDelete: (size: PaddleSize) => invoke("paddle_delete", { size }),
   onPaddleProgress: (cb: (p: PaddleProgress) => void) => listen<PaddleProgress>("paddle-progress", (e) => cb(e.payload)),
   onPaddleDone: (cb: (d: PaddleDone) => void) => listen<PaddleDone>("paddle-done", (e) => cb(e.payload)),
+  whisperStatus: () => invoke<WhisperStatus>("whisper_status"),
+  whisperDownload: (model: WhisperModel) => invoke("whisper_download", { model }),
+  whisperCancel: () => invoke("whisper_cancel"),
+  whisperDelete: (model: WhisperModel) => invoke("whisper_delete", { model }),
+  onWhisperProgress: (cb: (p: WhisperProgress) => void) =>
+    listen<WhisperProgress>("whisper-progress", (e) => cb(e.payload)),
+  onWhisperDone: (cb: (d: WhisperDone) => void) => listen<WhisperDone>("whisper-done", (e) => cb(e.payload)),
+  transcriptRead: (path: string) => invoke<Segment[] | null>("transcript_read", { path }),
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   updateCheck: () => invoke("update_check"),
   updateInstall: () => invoke("update_install"),

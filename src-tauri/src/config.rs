@@ -1,10 +1,15 @@
 use crate::ring::{AppEntry, Wedge, key_char};
+use crate::video::Quality;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 use tauri_plugin_global_shortcut::Shortcut;
 
 pub const MAX_RING_ITEMS: usize = 12;
+const COMPRESS_HEIGHT_FULL_HD: u32 = 1080;
+const COMPRESS_HEIGHT_HD: u32 = 720;
+const TRANSCRIPT_AUTO: &str = "auto";
+const TRANSCRIPT_LANGUAGES: [&str; 3] = [TRANSCRIPT_AUTO, "vi", "en"];
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -149,6 +154,15 @@ pub enum PaddleSize {
     Medium,
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WhisperModel {
+    Base,
+    #[default]
+    Small,
+    Turbo,
+}
+
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Padding {
@@ -185,11 +199,23 @@ pub struct Config {
     pub record_speaker: String,
     #[serde(default)]
     pub record_mode: RecordMode,
+    #[serde(default = "default_quality")]
+    pub record_quality: String,
+    #[serde(default)]
+    pub record_compress: bool,
+    #[serde(default = "default_compress_height")]
+    pub record_compress_height: u32,
     pub text_capture: bool,
     #[serde(default)]
     pub ocr_engine: OcrEngine,
     #[serde(default)]
     pub paddle_model: PaddleSize,
+    #[serde(default)]
+    pub record_transcribe: bool,
+    #[serde(default)]
+    pub whisper_model: WhisperModel,
+    #[serde(default = "default_transcript_language")]
+    pub transcript_language: String,
     pub update_check: bool,
     pub padding: Padding,
     pub hotkeys: Hotkeys,
@@ -198,6 +224,18 @@ pub struct Config {
 
 fn default_mic() -> String {
     "default".into()
+}
+
+fn default_transcript_language() -> String {
+    TRANSCRIPT_AUTO.into()
+}
+
+fn default_quality() -> String {
+    "medium".into()
+}
+
+fn default_compress_height() -> u32 {
+    COMPRESS_HEIGHT_FULL_HD
 }
 
 impl Default for Hotkeys {
@@ -260,9 +298,15 @@ impl Default for Config {
             record_camera: String::new(),
             record_speaker: String::new(),
             record_mode: RecordMode::Fullscreen,
+            record_quality: default_quality(),
+            record_compress: false,
+            record_compress_height: default_compress_height(),
             text_capture: true,
             ocr_engine: OcrEngine::Windows,
             paddle_model: PaddleSize::Small,
+            record_transcribe: false,
+            whisper_model: WhisperModel::Small,
+            transcript_language: default_transcript_language(),
             update_check: true,
             padding: Padding::default(),
             hotkeys: Hotkeys::default(),
@@ -301,6 +345,18 @@ impl Config {
 
     pub fn fps(&self) -> u32 {
         if self.record_fps == 60 { 60 } else { 30 }
+    }
+
+    pub fn compress_height(&self) -> u32 {
+        if self.record_compress_height == COMPRESS_HEIGHT_HD { COMPRESS_HEIGHT_HD } else { COMPRESS_HEIGHT_FULL_HD }
+    }
+
+    pub fn transcript_language(&self) -> &str {
+        TRANSCRIPT_LANGUAGES.into_iter().find(|&l| l == self.transcript_language).unwrap_or(TRANSCRIPT_AUTO)
+    }
+
+    pub fn quality(&self) -> Quality {
+        Quality::parse(&self.record_quality).unwrap_or_default()
     }
 
     pub fn dir(&self) -> PathBuf {

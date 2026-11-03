@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use yaml_rust2::{Yaml, YamlLoader};
 
-struct Remote {
-    url: &'static str,
-    sha256: &'static str,
-    bytes: u64,
+pub(crate) struct Remote {
+    pub(crate) url: &'static str,
+    pub(crate) sha256: &'static str,
+    pub(crate) bytes: u64,
 }
 
 struct Model {
@@ -26,15 +26,6 @@ struct Model {
     yml: Remote,
     params: (f32, f32, f32),
 }
-
-const RUNTIME: Remote = Remote {
-    url: "https://files.pythonhosted.org/packages/59/bf/a1d282b4c753ba3e9b31f4c11abd2bc2390513dc5e3792ca3b78e42401c3/onnxruntime-1.31.1-cp313-cp313-win_amd64.whl",
-    sha256: "0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b",
-    bytes: 14_888_304,
-};
-const RUNTIME_ENTRY: &str = "onnxruntime/capi/onnxruntime.dll";
-const RUNTIME_FILE: &str = "onnxruntime.dll";
-const WHEEL_PART: &str = "onnxruntime.whl.part";
 
 const MODELS: [Model; 3] = [
     Model {
@@ -152,13 +143,13 @@ pub fn files(app: &AppHandle, size: PaddleSize) -> (PathBuf, PathBuf, PathBuf) {
     (root.join("det.onnx"), root.join("rec.onnx"), root.join("dict.txt"))
 }
 
-pub fn runtime(app: &AppHandle) -> PathBuf {
-    dir(app).join(RUNTIME_FILE)
+pub fn installed(app: &AppHandle) -> bool {
+    SIZES.into_iter().any(|size| size_dir(app, size).exists())
 }
 
 pub fn ready(app: &AppHandle, size: PaddleSize) -> bool {
     let (det, rec, dict) = files(app, size);
-    det.is_file() && rec.is_file() && dict.is_file() && runtime(app).is_file()
+    det.is_file() && rec.is_file() && dict.is_file() && crate::onnx::runtime_path(app).is_file()
 }
 
 pub fn det_params(size: PaddleSize) -> (f32, f32, f32) {
@@ -171,7 +162,7 @@ pub fn selected(app: &AppHandle, cfg: &Config) -> Option<PaddleModel> {
         return None;
     }
     let (det, rec, dict) = files(app, size);
-    Some(PaddleModel { size, det, rec, dict, runtime: runtime(app), params: det_params(size) })
+    Some(PaddleModel { size, det, rec, dict, runtime: crate::onnx::runtime_path(app), params: det_params(size) })
 }
 
 pub fn unload_others(cfg: &Config) {
@@ -183,13 +174,13 @@ pub fn unload_others(cfg: &Config) {
     }
 }
 
-fn disk_bytes(path: &Path) -> u64 {
+pub(crate) fn disk_bytes(path: &Path) -> u64 {
     fs::read_dir(path)
         .map(|entries| entries.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum())
         .unwrap_or(0)
 }
 
-fn clean(path: &Path) {
+pub(crate) fn clean(path: &Path) {
     let Ok(entries) = fs::read_dir(path) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -199,21 +190,21 @@ fn clean(path: &Path) {
     }
 }
 
-fn part(path: &Path) -> PathBuf {
+pub(crate) fn part(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".part");
     path.with_file_name(name)
 }
 
-struct Fetch<'a> {
-    agent: ureq::Agent,
-    cancel: &'a AtomicBool,
-    done: &'a AtomicU64,
-    report: Box<dyn FnMut(u64) + 'a>,
+pub(crate) struct Fetch<'a> {
+    pub(crate) agent: ureq::Agent,
+    pub(crate) cancel: &'a AtomicBool,
+    pub(crate) done: &'a AtomicU64,
+    pub(crate) report: Box<dyn FnMut(u64) + 'a>,
 }
 
 impl Fetch<'_> {
-    fn get(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
+    pub(crate) fn get(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
         let result = self.stream(remote, to);
         if result.is_err() {
             let _ = fs::remove_file(to);
@@ -251,7 +242,7 @@ impl Fetch<'_> {
         Ok(())
     }
 
-    fn file(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
+    pub(crate) fn file(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
         let tmp = part(to);
         self.get(remote, &tmp)?;
         fs::rename(&tmp, to).map_err(|e| {
@@ -259,23 +250,6 @@ impl Fetch<'_> {
             e.to_string()
         })
     }
-}
-
-fn extract_runtime(wheel: &Path, to: &Path) -> Result<(), String> {
-    let tmp = part(to);
-    let result = (|| {
-        let mut archive = zip::ZipArchive::new(File::open(wheel).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        let mut entry = archive.by_name(RUNTIME_ENTRY).map_err(|e| e.to_string())?;
-        let mut out = File::create(&tmp).map_err(|e| e.to_string())?;
-        io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
-        out.flush().map_err(|e| e.to_string())?;
-        drop(out);
-        fs::rename(&tmp, to).map_err(|e| e.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
 }
 
 fn dictionary(yml: &Path) -> Result<String, String> {
@@ -314,25 +288,17 @@ fn write_dict(yml: &Path, to: &Path) -> Result<(), String> {
     result
 }
 
-fn total(root: &Path, size: PaddleSize) -> u64 {
+fn total(app: &AppHandle, size: PaddleSize) -> u64 {
     let m = model(size);
-    let runtime = if root.join(RUNTIME_FILE).is_file() { 0 } else { RUNTIME.bytes };
-    m.det.bytes + m.rec.bytes + m.yml.bytes + runtime
+    m.det.bytes + m.rec.bytes + m.yml.bytes + crate::onnx::missing_bytes(app)
 }
 
-fn fetch_size(root: &Path, size: PaddleSize, fetch: &mut Fetch) -> Result<(), String> {
+fn fetch_size(app: &AppHandle, root: &Path, size: PaddleSize, fetch: &mut Fetch) -> Result<(), String> {
     let target = root.join(name(size));
     fs::create_dir_all(&target).map_err(|e| e.to_string())?;
     clean(root);
     clean(&target);
-    let dll = root.join(RUNTIME_FILE);
-    if !dll.is_file() {
-        let wheel = root.join(WHEEL_PART);
-        fetch.get(&RUNTIME, &wheel)?;
-        let extracted = extract_runtime(&wheel, &dll);
-        let _ = fs::remove_file(&wheel);
-        extracted?;
-    }
+    crate::onnx::ensure(app, fetch)?;
     let m = model(size);
     fetch.file(&m.det, &target.join("det.onnx"))?;
     fetch.file(&m.rec, &target.join("rec.onnx"))?;
@@ -365,7 +331,7 @@ fn run(app: &AppHandle, size: PaddleSize, cancel: &AtomicBool, done: &AtomicU64,
             }
         }),
     };
-    let result = fetch_size(&root, size, &mut fetch);
+    let result = fetch_size(app, &root, size, &mut fetch);
     if result.is_err() {
         let _ = fs::remove_dir_all(root.join(name(size)));
     }
@@ -381,7 +347,7 @@ pub fn paddle_status(app: AppHandle, state: tauri::State<State>) -> Status {
         done: d.done.load(Ordering::Relaxed),
         total: d.total,
     });
-    Status { ready, bytes, downloading, runtime: runtime(&app).is_file() }
+    Status { ready, bytes, downloading, runtime: crate::onnx::runtime_path(&app).is_file() }
 }
 
 #[tauri::command]
@@ -395,7 +361,7 @@ pub fn paddle_download(app: AppHandle, state: tauri::State<State>, size: PaddleS
     }
     let cancel = Arc::new(AtomicBool::new(false));
     let done = Arc::new(AtomicU64::new(0));
-    let total = total(&dir(&app), size);
+    let total = total(&app, size);
     *slot = Some(Download { size, cancel: cancel.clone(), done: done.clone(), total });
     drop(slot);
     std::thread::spawn(move || {
@@ -424,6 +390,7 @@ pub fn paddle_cancel(state: tauri::State<State>) {
 
 #[tauri::command]
 pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSize) -> Result<(), String> {
+    let whisper_busy = state.whisper_download.lock().unwrap().is_some();
     let download = state.download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.size == size) {
         return Err("this size is downloading".into());
@@ -434,9 +401,7 @@ pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSiz
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
     };
-    if download.is_none() && SIZES.into_iter().all(|s| !size_dir(&app, s).exists()) {
-        let _ = fs::remove_file(runtime(&app));
-    }
+    crate::onnx::release(&app, whisper_busy || download.is_some());
     drop(download);
     crate::apply(&app);
     removed

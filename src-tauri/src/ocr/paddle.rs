@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::OnceLock;
 
 use image::RgbaImage;
 use image::imageops::{FilterType, crop_imm, resize};
@@ -17,8 +16,6 @@ const BATCH: usize = 8;
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
-static RUNTIME: OnceLock<Result<Environment, String>> = OnceLock::new();
-
 pub type Line = (f32, f32, f32, String);
 
 struct Rect {
@@ -34,19 +31,6 @@ pub struct Engine {
     dict: Vec<String>,
 }
 
-fn runtime(path: &Path) -> Result<&'static Environment, String> {
-    RUNTIME
-        .get_or_init(|| {
-            ort::init_from(path)
-                .map_err(|e| e.to_string())?
-                .with_name("snapr")
-                .build()
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map_err(Clone::clone)
-}
-
 fn session(env: &Environment, path: &Path) -> Result<Session, String> {
     Session::builder(env)
         .map_err(|e| e.to_string())?
@@ -56,7 +40,7 @@ fn session(env: &Environment, path: &Path) -> Result<Session, String> {
 
 impl Engine {
     pub fn load(det: &Path, rec: &Path, dict: &Path, runtime_path: &Path) -> Result<Self, String> {
-        let env = runtime(runtime_path)?;
+        let env = crate::onnx::init(runtime_path)?;
         let mut dict: Vec<String> = std::fs::read_to_string(dict)
             .map_err(|e| e.to_string())?
             .lines()

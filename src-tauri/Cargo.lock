@@ -4923,7 +4923,7 @@ dependencies = [
 
 [[package]]
 name = "snapr-v2"
-version = "1.9.1"
+version = "1.10.0"
 dependencies = [
  "ab_glyph",
  "arboard",
@@ -4931,6 +4931,7 @@ dependencies = [
  "chrono",
  "cpal",
  "dirs",
+ "gif",
  "image",
  "minisign-verify",
  "ndarray",
@@ -4953,6 +4954,7 @@ dependencies = [
  "windows",
  "windows-capture",
  "windows-core",
+ "windows-future",
  "windows-sys 0.61.2",
  "winit",
  "xcap",

@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, FolderOpen, Pin, ScanText, Trash2 } from "lucide-react";
+import { ArrowLeft, Captions, Clapperboard, ChevronLeft, ChevronRight, Copy, ExternalLink, FileDown, FolderOpen, Pin, ScanText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions, TextResult } from "@/hooks/use-gallery";
 import { api, type GalleryItem } from "@/lib/api";
-import { fileName, formatDuration, formatSize } from "@/lib/gallery";
+import { fileName, formatDuration, formatSize, isMp4 } from "@/lib/gallery";
 import { ItemMenu } from "./item-menu";
 import { TextPane } from "./text-pane";
+import { TranscriptPane } from "./transcript-pane";
 import { ViewerStrip } from "./viewer-strip";
 import { ZoomImage } from "./zoom-image";
 
@@ -22,6 +23,9 @@ type Props = {
   text: TextResult | null;
   onToggleText: () => void;
   onCloseText: () => void;
+  transcriptOpen: boolean;
+  onToggleTranscript: () => void;
+  onCloseTranscript: () => void;
   onStep: (delta: number) => void;
   onSelect: (item: GalleryItem) => void;
   origin: DOMRect | null;
@@ -31,8 +35,25 @@ type Props = {
 type Meta = { w: number; h: number; duration?: number };
 
 export function Viewer(props: Props) {
-  const { item, index, count, items, actions, paused, text, onToggleText, onCloseText, onStep, onSelect, origin, onClose } =
-    props;
+  const {
+    item,
+    index,
+    count,
+    items,
+    actions,
+    paused,
+    text,
+    onToggleText,
+    onCloseText,
+    transcriptOpen,
+    onToggleTranscript,
+    onCloseTranscript,
+    onStep,
+    onSelect,
+    origin,
+    onClose,
+  } = props;
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const { t, ocr, cfg } = useSettingsContext();
   const [loaded, setLoaded] = useState<Meta & { path: string }>();
   const meta = loaded?.path === item.path ? loaded : null;
@@ -55,7 +76,8 @@ export function Viewer(props: Props) {
       const ctrl = e.ctrlKey || e.metaKey;
       if (e.key === "ArrowLeft") onStep(-1);
       else if (e.key === "ArrowRight") onStep(1);
-      else if (e.key === "Escape") (text ? onCloseText : onClose)();
+      else if (e.key === "Escape") (transcriptOpen ? onCloseTranscript : text ? onCloseText : onClose)();
+      else if (isMp4(item) && !ctrl && e.key.toLowerCase() === "t") onToggleTranscript();
       else if (e.key === "Delete") actions.remove(item);
       else if (photo && ctrl && e.key.toLowerCase() === "c" && !window.getSelection()?.toString()) actions.copy(item);
       else if (photo && !ctrl && e.key.toLowerCase() === "p") actions.pin(item);
@@ -95,6 +117,24 @@ export function Viewer(props: Props) {
             </Button>
           </>
         )}
+        {isMp4(item) && (
+          <>
+            <Button variant="ghost" size="icon" title={t.exportGif} onClick={() => actions.openGif(item)}>
+              <Clapperboard />
+            </Button>
+            <Button variant="ghost" size="icon" title={t.compressVideo} onClick={() => actions.openCompress(item)}>
+              <FileDown />
+            </Button>
+            <Button
+              variant={transcriptOpen ? "secondary" : "ghost"}
+              size="icon"
+              title={`${t.transcript} (T)`}
+              onClick={onToggleTranscript}
+            >
+              <Captions />
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon" title={t.openDefault} onClick={() => actions.open(item)}>
           <ExternalLink />
         </Button>
@@ -126,6 +166,7 @@ export function Viewer(props: Props) {
             {item.kind === "video" ? (
               <video
                 key={src}
+                ref={setVideo}
                 src={src}
                 controls
                 autoPlay
@@ -143,6 +184,7 @@ export function Viewer(props: Props) {
           </ContextMenuContent>
         </ContextMenu>
         {text && <TextPane text={text} onClose={onCloseText} />}
+        {transcriptOpen && <TranscriptPane path={item.path} video={video} onClose={onCloseTranscript} />}
       </div>
       <div className="animate-in duration-200 fade-in-0 slide-in-from-bottom-2">
         <ViewerStrip items={items} activePath={item.path} onSelect={onSelect} />

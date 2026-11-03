@@ -2,6 +2,7 @@ import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-m
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions } from "@/hooks/use-gallery";
 import type { GalleryItem } from "@/lib/api";
+import { isMp4 } from "@/lib/gallery";
 
 export function ItemMenu({ item, actions }: { item: GalleryItem; actions: GalleryActions }) {
   const { t, ocr } = useSettingsContext();
@@ -16,6 +17,9 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
           {ocr && <ContextMenuItem onClick={() => actions.extractText(item)}>{t.extractText}</ContextMenuItem>}
         </>
       )}
+      {isMp4(item) && <ContextMenuItem onClick={() => actions.openGif(item)}>{t.exportGif}</ContextMenuItem>}
+      {isMp4(item) && <ContextMenuItem onClick={() => actions.openCompress(item)}>{t.compressVideo}</ContextMenuItem>}
+      {isMp4(item) && <ContextMenuItem onClick={() => actions.transcribe(item)}>{t.transcribe}</ContextMenuItem>}
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onClick={() => actions.remove(item)}>
         {t.deleteItem}

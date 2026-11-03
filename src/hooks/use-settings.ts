@@ -5,6 +5,7 @@ import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 import { usePaddle } from "./use-paddle";
 import { useUpdate } from "./use-update";
+import { useWhisper } from "./use-whisper";
 
 export type View = "splash" | "setup" | "settings";
 export type SectionId = "gallery" | "settings" | "ring";
@@ -80,6 +81,7 @@ export function useSettings() {
     setWindowsOcr(s.windows_ocr);
   }, []);
   const paddle = usePaddle(reloadOcr);
+  const whisper = useWhisper();
   const updater = useUpdate();
 
   const outputDir = cfg?.output_dir;
@@ -105,6 +107,15 @@ export function useSettings() {
       const switched = cfg?.ocr_engine !== next.ocr_engine || cfg?.paddle_model !== next.paddle_model;
       if (switched && next.ocr_engine === "paddle" && !paddle.status.ready.includes(next.paddle_model) && paddle.progress?.size !== next.paddle_model) {
         paddle.download(next.paddle_model);
+      }
+      const whisperSwitched =
+        (!cfg?.record_transcribe && next.record_transcribe) || cfg?.whisper_model !== next.whisper_model;
+      if (
+        whisperSwitched &&
+        !whisper.status.ready.includes(next.whisper_model) &&
+        whisper.progress?.model !== next.whisper_model
+      ) {
+        whisper.download(next.whisper_model);
       }
     } catch {
       setFailed(true);
@@ -139,6 +150,7 @@ export function useSettings() {
     ocr,
     windowsOcr,
     paddle,
+    whisper,
     updater,
     group,
     setGroup,
