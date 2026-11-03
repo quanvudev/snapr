@@ -38,6 +38,7 @@ const ALPHA: usize = 3;
 const CHANNEL_MAX: u16 = u8::MAX as u16;
 const ROUNDING: u16 = CHANNEL_MAX / 2;
 const FRAME_QUEUE: usize = 8;
+const QUEUE_RETRY: std::time::Duration = std::time::Duration::from_millis(2);
 const AUDIO_RATE: u32 = 48_000;
 const AUDIO_CHANNELS: u32 = 2;
 const AUDIO_BITS: u32 = 16;
@@ -220,7 +221,7 @@ impl SubtitleTask {
         Ok(())
     }
 
-    fn encode(&self, part: &Path, progress: &Progress, cancel: &AtomicBool) -> Result<(), String> {
+    fn encode(&self, part: &Path, progress: &dyn Fn(u64), cancel: &AtomicBool) -> Result<(), String> {
         if !self.path.is_file() {
             return Err("video not found".into());
         }
@@ -247,30 +248,48 @@ impl SubtitleTask {
             part,
         )
         .map_err(|e| e.to_string())?;
-        progress.set(0, PERCENT);
+        progress(0);
         let mut cache = None;
-        let mut buffer = Vec::new();
         let mut sent = false;
+        let mut pending: Option<(Vec<u8>, u64)> = None;
         let mut frame = video.read().map_err(|e| e.to_string())?;
         let mut chunk = read_audio(audio.as_ref())?;
         loop {
             if cancel.load(Ordering::Relaxed) {
                 return Err(CANCELLED.into());
             }
-            let take_video = match (&frame, &chunk) {
+            let video_stamp = pending.as_ref().map(|(_, stamp)| *stamp).or(frame.as_ref().map(|(_, stamp)| *stamp));
+            let take_video = match (video_stamp, &chunk) {
                 (None, None) => break,
-                (Some((_, video_at)), Some((_, audio_at))) => video_at <= audio_at,
+                (Some(video_at), Some((_, audio_at))) => video_at <= *audio_at,
                 (video_next, _) => video_next.is_some(),
             };
             if take_video {
-                let Some((sample, stamp)) = frame.take() else { break };
-                self.frame(&video, &sample, stamp, (width, height), &mut buffer, &mut cache)?;
-                encoder.send_frame_buffer(&buffer, stamp as i64).map_err(|e| e.to_string())?;
-                sent = true;
-                if let Some(done) = (stamp * PERCENT).checked_div(video.duration) {
-                    progress.set(done.min(PERCENT), PERCENT);
+                if pending.is_none() {
+                    let Some((sample, stamp)) = frame.take() else { break };
+                    let mut buffer = Vec::new();
+                    self.frame(&video, &sample, stamp, (width, height), &mut buffer, &mut cache)?;
+                    pending = Some((buffer, stamp));
+                    frame = video.read().map_err(|e| e.to_string())?;
                 }
-                frame = video.read().map_err(|e| e.to_string())?;
+                let Some((buffer, stamp)) = pending.take() else { break };
+                match encoder.try_send_frame_buffer(buffer, stamp as i64).map_err(|e| e.to_string())? {
+                    None => {
+                        sent = true;
+                        if let Some(done) = (stamp * PERCENT).checked_div(video.duration) {
+                            progress(done.min(PERCENT));
+                        }
+                    }
+                    Some(back) => {
+                        pending = Some((back, stamp));
+                        if let Some((bytes, _)) = chunk.take() {
+                            encoder.send_audio_buffer(&bytes, 0).map_err(|e| e.to_string())?;
+                            chunk = read_audio(audio.as_ref())?;
+                        } else {
+                            std::thread::sleep(QUEUE_RETRY);
+                        }
+                    }
+                }
             } else if let Some((bytes, _)) = chunk.take() {
                 encoder.send_audio_buffer(&bytes, 0).map_err(|e| e.to_string())?;
                 chunk = read_audio(audio.as_ref())?;
@@ -297,6 +316,37 @@ impl Task for SubtitleTask {
     }
 
     fn run(&self, progress: &Progress, cancel: &AtomicBool) -> Result<Option<PathBuf>, String> {
-        queue::write_part(&self.out_dir, &self.stem(), VIDEO_EXT, |part| self.encode(part, progress, cancel))
+        queue::write_part(&self.out_dir, &self.stem(), VIDEO_EXT, |part| {
+            self.encode(part, &|done| progress.set(done, PERCENT), cancel)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_ENV: &str = "SNAPR_SUBTITLE_TEST";
+    const TEST_OUTPUT: &str = "snapr_subtitle_test.mp4.part";
+
+    #[test]
+    #[ignore]
+    fn encodes_without_stalling() {
+        let Ok(video) = std::env::var(TEST_ENV) else { return };
+        let path = PathBuf::from(video);
+        let srt = std::fs::read_to_string(path.with_extension(SRT_EXT)).unwrap();
+        let segments = transcript::parse_srt(&srt).into_iter().filter(|s| !s.text.trim().is_empty()).collect();
+        let task = SubtitleTask {
+            out_dir: std::env::temp_dir(),
+            path,
+            segments,
+            position: Position::Bottom,
+            size: Size::Medium,
+            font: draw::system_font(&FONT_FILES).unwrap(),
+        };
+        let part = std::env::temp_dir().join(TEST_OUTPUT);
+        let result = task.encode(&part, &|_| {}, &AtomicBool::new(false));
+        let _ = std::fs::remove_file(&part);
+        assert!(result.is_ok(), "{result:?}");
     }
 }

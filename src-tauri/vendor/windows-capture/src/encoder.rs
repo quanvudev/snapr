@@ -369,24 +369,30 @@ impl FrameSender {
         }
     }
 
-    fn send(&self, message: FrameMessage, alive: impl Fn() -> bool) -> Result<(), mpsc::SendError<FrameMessage>> {
-        let sender = match self {
-            Self::Unbounded(sender) => return sender.send(message),
-            Self::Bounded(sender) => sender,
-        };
-        let mut message = message;
-        loop {
-            match sender.try_send(message) {
-                Ok(()) => return Ok(()),
-                Err(mpsc::TrySendError::Full(back)) if alive() => {
-                    message = back;
-                    thread::sleep(FRAME_QUEUE_POLL);
-                }
+    fn try_send(
+        &self,
+        message: FrameMessage,
+        alive: impl Fn() -> bool,
+    ) -> Result<Option<FrameMessage>, mpsc::SendError<FrameMessage>> {
+        match self {
+            Self::Unbounded(sender) => sender.send(message).map(|()| None),
+            Self::Bounded(sender) => match sender.try_send(message) {
+                Ok(()) => Ok(None),
+                Err(mpsc::TrySendError::Full(back)) if alive() => Ok(Some(back)),
                 Err(mpsc::TrySendError::Full(back) | mpsc::TrySendError::Disconnected(back)) => {
-                    return Err(mpsc::SendError(back));
+                    Err(mpsc::SendError(back))
                 }
-            }
+            },
         }
+    }
+
+    fn send(&self, message: FrameMessage, alive: impl Fn() -> bool) -> Result<(), mpsc::SendError<FrameMessage>> {
+        let mut message = message;
+        while let Some(back) = self.try_send(message, &alive)? {
+            message = back;
+            thread::sleep(FRAME_QUEUE_POLL);
+        }
+        Ok(())
     }
 }
 
@@ -1365,6 +1371,39 @@ impl VideoEncoder {
 
     fn send_frame_message(&self, message: FrameMessage) -> Result<(), mpsc::SendError<FrameMessage>> {
         self.frame_sender.send(message, || self.transcode_thread.as_ref().is_some_and(|thread| !thread.is_finished()))
+    }
+
+    #[allow(missing_docs)]
+    pub fn try_send_frame_buffer(&mut self, buffer: Vec<u8>, timestamp: i64) -> Result<Option<Vec<u8>>, VideoEncoderError> {
+        if self.is_video_disabled {
+            return Err(VideoEncoderError::VideoDisabled);
+        }
+
+        let relative = match self.first_timestamp {
+            Some(t0) => TimeSpan { Duration: timestamp - t0.Duration },
+            None => TimeSpan { Duration: 0 },
+        };
+
+        let alive = || self.transcode_thread.as_ref().is_some_and(|thread| !thread.is_finished());
+        let message = Some((VideoEncoderSource::Buffer(buffer), relative));
+        if let Some(back) = self.frame_sender.try_send(message, alive)? {
+            return Ok(Some(match back {
+                Some((VideoEncoderSource::Buffer(bytes), _)) => bytes,
+                _ => Vec::new(),
+            }));
+        }
+
+        if self.first_timestamp.is_none() {
+            self.first_timestamp = Some(TimeSpan { Duration: timestamp });
+        }
+
+        if self.error_notify.load(atomic::Ordering::Relaxed)
+            && let Some(t) = self.transcode_thread.take()
+        {
+            t.join().expect("Failed to join transcode thread")?;
+        }
+
+        Ok(None)
     }
 
     /// Sends a raw frame buffer (owned inside). Returns immediately.
