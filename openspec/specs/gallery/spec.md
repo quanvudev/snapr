@@ -7,7 +7,7 @@ Lets users browse, view and manage the screenshots and recordings in the output 
 ## Requirements
 
 ### Requirement: Gallery lists every file in the output folder
-The gallery SHALL list every file directly inside the resolved output folder and classify it by extension, case-insensitive: photos are `png`, `jpg`, `jpeg`, `gif`, `webp` and `bmp`; videos are `mp4` and `webm`; every other file is an other file. Subfolders SHALL be ignored. Files are not required to follow snapr's naming.
+The gallery SHALL list every file directly inside the resolved output folder and classify it by extension, case-insensitive: photos are `png`, `jpg`, `jpeg`, `gif`, `webp` and `bmp`; videos are `mp4` and `webm`; every other file is an other file. Subfolders SHALL be ignored. Files are not required to follow snapr's naming. An `srt` file whose name without extension equals that of a video in the folder is that video's transcript and SHALL NOT be listed.
 
 #### Scenario: Mixed folder
 - **WHEN** the output folder holds `a.png`, `b.MP4`, `c.jpg`, `notes.txt`, `clip.mov` and a subfolder `old` containing `d.png`
@@ -16,6 +16,10 @@ The gallery SHALL list every file directly inside the resolved output folder and
 #### Scenario: Empty or missing folder
 - **WHEN** the output folder has no file, or does not exist
 - **THEN** the gallery shows an empty state message instead of a grid
+
+#### Scenario: Transcript beside its video
+- **WHEN** the output folder holds `a.mp4`, `a.srt` and `b.srt`
+- **THEN** the gallery shows `a.mp4` as a video and `b.srt` as an other file, and does not show `a.srt`
 
 ### Requirement: Item date is the earlier of created and modified time
 Each item's date SHALL be the earlier of the file's created time and last modified time, in local time. The file name SHALL NOT be used to date an item.
@@ -136,7 +140,7 @@ The viewer SHALL show a horizontal strip of thumbnails below the media, containi
 
 ### Requirement: Item context menu
 
-Right-clicking an item in the grid, or the content in the viewer, SHALL show the actions Open with default app, Show in Explorer, Pin, Copy image, Extract text and Delete. Pin and Copy image SHALL be shown only for photo items, and Extract text only for photo items while Windows has an OCR language; other files get Open with default app, Show in Explorer and Delete.
+Right-clicking an item in the grid, or the content in the viewer, SHALL show the actions Open with default app, Show in Explorer, Pin, Copy image, Extract text, Export GIF, Compress video and Delete. Pin and Copy image SHALL be shown only for photo items, Extract text only for photo items while Windows has an OCR language, and Export GIF and Compress video only for MP4 items; other files get Open with default app, Show in Explorer and Delete.
 
 #### Scenario: Open with default app
 
@@ -192,6 +196,26 @@ Right-clicking an item in the grid, or the content in the viewer, SHALL show the
 
 - **WHEN** no OCR language is installed and the user right-clicks a PNG item
 - **THEN** the menu has no Extract text action
+
+#### Scenario: Export GIF from a video
+
+- **WHEN** the user right-clicks an MP4 item and chooses Export GIF
+- **THEN** the GIF export dialog opens for that video
+
+#### Scenario: No export GIF for photos or other files
+
+- **WHEN** the user right-clicks a PNG item or `notes.txt`
+- **THEN** the menu has no Export GIF action
+
+#### Scenario: Compress a video
+
+- **WHEN** the user right-clicks an MP4 item and chooses Compress video
+- **THEN** the compress dialog opens for that video
+
+#### Scenario: No compress for photos or other files
+
+- **WHEN** the user right-clicks a PNG item or `notes.txt`
+- **THEN** the menu has no Compress video action
 
 ### Requirement: Delete moves to the Recycle Bin after confirmation
 Delete SHALL ask for confirmation and, when confirmed, move the file to the Windows Recycle Bin and remove it from the gallery. Deleting from the viewer SHALL show the next item, or the previous one when it was the last, or close the viewer when nothing is left in the filter. A failed delete SHALL keep the item and show an error.
@@ -341,7 +365,7 @@ Leaving selection mode and changing the filter or grouping SHALL clear the selec
 
 ### Requirement: Bulk action bar
 
-While selection mode is active or the selection is not empty, the gallery SHALL show a bar with the selected count, Select all, Delete, Copy, Pin and Cancel. Delete SHALL be enabled for any non-empty selection. Copy and Pin SHALL be enabled only when at least one selected item is a photo. Cancel SHALL leave selection mode and clear the selection.
+While selection mode is active or the selection is not empty, the gallery SHALL show a bar with the selected count, Select all, Delete, Copy, Pin, Export GIF, Compress video and Cancel. Delete SHALL be enabled for any non-empty selection. Copy and Pin SHALL be enabled only when at least one selected item is a photo. Export GIF and Compress video SHALL be enabled only when at least one selected item is an MP4. Cancel SHALL leave selection mode and clear the selection.
 
 #### Scenario: Bar and count
 
@@ -353,10 +377,15 @@ While selection mode is active or the selection is not empty, the gallery SHALL 
 - **WHEN** the selection has no photos
 - **THEN** Copy and Pin are disabled; when at least one photo is selected they are enabled
 
+#### Scenario: Video actions need a video
+
+- **WHEN** the selection has no MP4 items
+- **THEN** Export GIF and Compress video are disabled; when at least one MP4 is selected they are enabled
+
 #### Scenario: Mixed selection
 
 - **WHEN** the selection has photos and videos
-- **THEN** Delete acts on all of them and Copy or Pin act on the photos only
+- **THEN** Delete acts on all of them, Copy or Pin act on the photos only, and Export GIF or Compress video act on the videos only
 
 #### Scenario: Cancel
 
@@ -529,3 +558,51 @@ The text pane SHALL stay open while the user moves between photos with Left/Righ
 
 - **WHEN** the text pane is open and the user presses Escape
 - **THEN** the pane closes and the viewer stays open
+
+### Requirement: Export GIF from the viewer
+While the viewer shows an MP4 item, its header SHALL offer an Export GIF button that opens the GIF export dialog for that video. The button SHALL NOT be shown for photos.
+
+#### Scenario: Viewer shows a video
+- **WHEN** the viewer shows an MP4 item and the user clicks Export GIF
+- **THEN** the GIF export dialog opens for that video
+
+#### Scenario: Viewer shows a photo
+- **WHEN** the viewer shows a PNG item
+- **THEN** the header has no Export GIF button
+
+### Requirement: Transcribe from the gallery
+The context menu of an MP4 item SHALL offer Transcribe, which queues its transcription. The bulk action bar SHALL offer Transcribe, enabled when the selection contains an MP4, which queues one transcription per selected MP4 in visible order and ignores other items. Photos SHALL NOT offer it.
+
+#### Scenario: Context menu
+- **WHEN** the user right-clicks an MP4 and chooses Transcribe
+- **THEN** one transcription of that video is added to the queue
+
+#### Scenario: Bulk
+- **WHEN** two MP4s and a PNG are selected and the user chooses Transcribe
+- **THEN** two transcriptions are queued, in the order shown, and the PNG is ignored
+
+#### Scenario: Photo
+- **WHEN** the user right-clicks a PNG
+- **THEN** the menu has no Transcribe
+
+### Requirement: Deleting a video removes its transcript
+Deleting an MP4, from the grid, the viewer or a bulk delete, SHALL also move its `<video name>.srt` to the Recycle Bin when one exists. A failure to remove the transcript SHALL NOT fail the video's delete.
+
+#### Scenario: Delete a transcribed video
+- **WHEN** the user deletes a video that has a transcript and confirms
+- **THEN** both the video and its `.srt` are in the Recycle Bin
+
+#### Scenario: Delete a video without transcript
+- **WHEN** the user deletes a video that has no `.srt` and confirms
+- **THEN** the video is in the Recycle Bin and no error is shown
+
+### Requirement: Compress video from the viewer
+While the viewer shows an MP4 item, its header SHALL offer a Compress video button that opens the compress dialog for that video. The button SHALL NOT be shown for photos.
+
+#### Scenario: Viewer shows a video
+- **WHEN** the viewer shows an MP4 item and the user clicks Compress video
+- **THEN** the compress dialog opens for that video
+
+#### Scenario: Viewer shows a photo
+- **WHEN** the viewer shows a PNG item
+- **THEN** the header has no Compress video button

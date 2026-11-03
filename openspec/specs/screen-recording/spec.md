@@ -284,3 +284,75 @@ When the camera is on, picking a window in the record picker SHALL record that w
 #### Scenario: Window without webcam
 - **WHEN** the camera is off and the user picks a window
 - **THEN** that window is recorded on its own, as before
+
+### Requirement: Automatic transcription after recording
+When automatic transcription is on, a finished recording that has an audio track SHALL be queued for transcription with the selected model and language, ahead of any automatic compression of the same recording. It SHALL be skipped without a message when the recording has no audio track, the selected model is not downloaded, or the recording was discarded. The preview toast SHALL open as before.
+
+#### Scenario: Recording with microphone
+- **WHEN** automatic transcription is on, the Small model is downloaded and the user records with a microphone
+- **THEN** after the recording ends a transcribe item appears in the queue, and when it finishes the recording's `.srt` exists
+
+#### Scenario: No audio
+- **WHEN** automatic transcription is on and the user records with no microphone and no system audio
+- **THEN** nothing is queued and no error is shown
+
+#### Scenario: Model not downloaded
+- **WHEN** automatic transcription is on and the selected model is not downloaded when a recording ends
+- **THEN** nothing is queued and no error is shown
+
+#### Scenario: With automatic compression
+- **WHEN** automatic transcription and automatic compression are both on and a 2560x1440 recording with audio ends
+- **THEN** the transcribe item is queued before the compress item, and the `.srt` keeps the recording's name
+
+#### Scenario: Off by default
+- **WHEN** snapr loads a config without the automatic transcription setting
+- **THEN** automatic transcription is off and recordings are not transcribed
+
+### Requirement: Recording bitrate follows the quality setting
+A recording's video bitrate SHALL be derived from the recorded width and height, its frame rate and the configured quality (Low, Medium or High), so a smaller area, a lower frame rate or a lower quality gives a smaller file. Higher quality SHALL never give a lower bitrate than lower quality for the same size and frame rate. The bitrate SHALL stay within fixed minimum and maximum bounds.
+
+#### Scenario: Smaller area
+- **WHEN** the user records a 640x360 area and then the full 1920x1080 screen for the same time with the same settings
+- **THEN** the area recording is much smaller than the full-screen recording
+
+#### Scenario: Quality order
+- **WHEN** the same content is recorded at Low, Medium and High
+- **THEN** the file sizes are in the order Low < Medium < High
+
+#### Scenario: Smaller than before
+- **WHEN** a 1920x1080, 30 fps screen is recorded for one minute at Medium
+- **THEN** the file is well below the 110 MB a fixed 15 Mbps bitrate would give
+
+### Requirement: Recording quality setting
+The quality SHALL be Low, Medium or High, taken from the config, defaulting to Medium. A config without the setting, or with an unknown value, SHALL load as Medium with every other setting unchanged. A recording SHALL keep the quality it started with until it ends.
+
+#### Scenario: Older config
+- **WHEN** snapr loads a config written before this setting existed
+- **THEN** recordings use Medium and every other setting is unchanged
+
+#### Scenario: Changed during a recording
+- **WHEN** the user changes the quality while a recording is running
+- **THEN** that recording keeps its starting quality and the next recording uses the new one
+
+### Requirement: Automatic compression after recording
+When automatic compression is on and a finished recording is taller than the configured target (1080p or 720p), Snapr SHALL queue it for compression to that height at the recording quality. When it finishes, the original SHALL move to the Recycle Bin and the compressed file SHALL take the original's name. A recording at or below the target, or a discarded recording, SHALL NOT be compressed. A failed or cancelled compression SHALL keep the original unchanged.
+
+#### Scenario: Large recording
+- **WHEN** automatic compression is on with 1080p and the user records a 2560x1440 screen
+- **THEN** after the recording ends a compress item appears in the queue, and when it finishes the file with the original name is 1920x1080 and the original is in the Recycle Bin
+
+#### Scenario: Small recording
+- **WHEN** automatic compression is on with 1080p and the user records a 1280x720 area
+- **THEN** nothing is queued and the recording is kept as recorded
+
+#### Scenario: Off by default
+- **WHEN** snapr loads a config without the automatic compression settings
+- **THEN** automatic compression is off with 1080p as the target, and recordings are not compressed
+
+#### Scenario: Cancelled
+- **WHEN** the user cancels the automatic compression item in the queue toast
+- **THEN** the original recording stays in place unchanged and no partial file remains
+
+#### Scenario: Preview toast
+- **WHEN** a recording ends with automatic compression on
+- **THEN** the preview toast opens at once as before, and opening the file later opens the compressed file under the same name

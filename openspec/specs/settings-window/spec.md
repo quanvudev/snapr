@@ -248,3 +248,62 @@ The About group SHALL show an update row under the version. The row SHALL show o
 #### Scenario: Update blocked by a recording
 - **WHEN** the user presses Update while a recording or countdown is running
 - **THEN** the row shows that the recording must be stopped first and keeps the Update action
+
+### Requirement: Ring section in the sidebar
+The sidebar SHALL list a Ring section after Gallery and Settings. Selecting it SHALL show the ring configuration described by the `ring-config` capability in its own pane, separate from the Settings page. Opening the window from the tray or the ring SHALL NOT select Ring. Ring SHALL be hidden while the action ring is turned off.
+
+#### Scenario: Open the Ring section
+- **WHEN** the user selects Ring in the sidebar
+- **THEN** the pane shows the ring entry list and the Settings page content is not shown
+
+#### Scenario: Ring settings stay out of Settings
+- **WHEN** the user scrolls the Settings section
+- **THEN** it contains no ring entry list
+
+#### Scenario: Ring turned off
+- **WHEN** the action ring switch is off
+- **THEN** the sidebar lists only Gallery and Settings
+
+### Requirement: Recording shows transcript settings
+The Recording group SHALL show an "Automatically transcribe after recording" switch, a Whisper model choice Base / Small / Large v3 Turbo with each model's disk size and download state, and a language choice Auto-detect / Vietnamese / English, all set to their current values. Changes SHALL save immediately.
+
+#### Scenario: Defaults
+- **WHEN** the Recording group is shown for a config without transcript settings
+- **THEN** the switch is off, Small is selected and Auto-detect is selected
+
+#### Scenario: Change language
+- **WHEN** the user selects Vietnamese
+- **THEN** the config is saved with Vietnamese and the next transcription uses it
+
+### Requirement: Selecting a model downloads it
+When the user selects a model that is not downloaded, or turns on automatic transcription while the selected model is not downloaded, the download SHALL start. The model row SHALL show its progress with Cancel, an inline error with Retry on failure, and Delete with a confirmation for each downloaded model.
+
+#### Scenario: Turn on automatic transcription
+- **WHEN** Small is selected but not downloaded and the user turns automatic transcription on
+- **THEN** the config is saved and the Small download starts with its progress shown
+
+#### Scenario: Delete a model
+- **WHEN** the user deletes the downloaded Base model and confirms
+- **THEN** Base shows as not downloaded and its disk space is freed
+
+### Requirement: Recording shows a quality choice
+The Recording group SHALL show a recording quality choice Low / Medium / High set to the current value, next to the frame rate, with a one-line hint that lower quality gives smaller files. Changing it SHALL save immediately like every other setting.
+
+#### Scenario: Quality row
+- **WHEN** the Recording group is shown
+- **THEN** it shows the quality choice with the current value selected
+
+#### Scenario: Change quality
+- **WHEN** the user selects Low
+- **THEN** the config is saved with Low and the next recording uses it
+
+### Requirement: Recording shows automatic compression
+The Recording group SHALL show an "Automatically compress after recording" switch set to the current value, with a hint that the original is replaced. While it is on, a 1080p / 720p choice set to the current target SHALL be shown under it. Changes SHALL save immediately.
+
+#### Scenario: Switch off
+- **WHEN** the Recording group is shown and automatic compression is off
+- **THEN** the switch is off and no resolution choice is shown
+
+#### Scenario: Turn it on
+- **WHEN** the user turns the switch on
+- **THEN** the config is saved with automatic compression on and the 1080p / 720p choice appears with 1080p selected
