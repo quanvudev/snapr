@@ -2,6 +2,20 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.10.0] - 2026-11-03
+
+### Added
+- Export GIF: turn a recording into an animated GIF from the gallery (right-click, the viewer or the bulk bar). Trim it with a preview, then pick the width (480 / 640 / 800 / Original) and the frame rate (10 / 15 / 20). The dialog shows an estimated file size.
+- Compress video: shrink a recording to Low, Medium or High quality at 1080p, 720p or its original size. The dialog shows the estimated file size, and the original is kept.
+- Transcripts: create subtitles for a recording's speech entirely on your computer with Whisper (Base, Small or Turbo, downloaded from Settings). Transcripts are saved as an `.srt` file next to the video. In the viewer, a transcript pane (Captions button or `T`) follows playback, jumps to a line when you click it and copies everything at once. The language can be Auto-detect, Vietnamese or English.
+- Background tasks: GIF exports, compressions and transcripts run one at a time in a queue, with progress and Cancel in a toast. You get a notification when one finishes while the window is closed. Several videos can be queued at once from the gallery selection.
+- Recording quality setting (Low / Medium / High) to trade file size against sharpness.
+- Optional automatic compression after recording (to 1080p or 720p, replacing the original, which goes to the Recycle Bin) and automatic transcription of recordings that have sound.
+
+### Changed
+- Recordings now pick their bitrate from their size, frame rate and quality instead of a fixed 15 Mbps, so most files are smaller at the default Medium quality.
+- Deleting a video from the gallery also moves its transcript to the Recycle Bin, and transcripts no longer show up as separate gallery items.
+
 ## [1.9.1] - 2026-10-30
 
 ### Fixed
