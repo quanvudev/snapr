@@ -73,6 +73,7 @@ pub struct Item {
     date_ms: u64,
     size: u64,
     kind: Kind,
+    transcript: bool,
 }
 
 #[derive(Serialize)]
@@ -98,6 +99,12 @@ fn list(dir: &Path) -> Vec<Item> {
         .filter(|path| Kind::of(path) == Kind::Video)
         .filter_map(|path| sidecar_stem(&path))
         .collect();
+    let sidecar_stems: HashSet<String> = entries
+        .iter()
+        .map(|entry| entry.path())
+        .filter(|path| is_sidecar(path))
+        .filter_map(|path| sidecar_stem(&path))
+        .collect();
     let mut items: Vec<Item> = entries
         .iter()
         .filter_map(|entry| {
@@ -110,7 +117,8 @@ fn list(dir: &Path) -> Vec<Item> {
             let modified = meta.modified().ok()?;
             let date = meta.created().map_or(modified, |created| created.min(modified));
             let date_ms = date.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-            Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind })
+            let transcript = kind == Kind::Video && sidecar_stem(&path).is_some_and(|stem| sidecar_stems.contains(&stem));
+            Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind, transcript })
         })
         .collect();
     items.sort_by_key(|item| std::cmp::Reverse(item.date_ms));

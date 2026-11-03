@@ -16,6 +16,7 @@ mod queue;
 mod recorder;
 mod ring;
 mod settings;
+mod subtitle;
 mod toast;
 mod toolbar;
 mod transcript;
@@ -621,7 +622,7 @@ impl Snap {
     fn queue_transcript(&self, path: &std::path::Path) {
         let Some(path) = path.to_str() else { return };
         if let Ok(task) = transcript::TranscribeTask::validated(&self.app, path) {
-            let _ = self.app.state::<State>().queue.add(&self.app, Box::new(task));
+            let _ = self.app.state::<State>().queue.add(&self.app, Box::new(task), None);
         }
     }
 
@@ -1009,10 +1010,14 @@ pub fn run() {
             whisper::whisper_cancel,
             whisper::whisper_delete,
             transcript::transcript_read,
+            transcript::transcript_save,
             update::update_status,
             update::update_check,
             update::update_install,
             queue::queue_add,
+            queue::queue_history,
+            queue::queue_history_clear,
+            queue::queue_retry,
             queue::queue_list,
             queue::queue_cancel,
             queue::queue_cancel_all,

@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import { useSettingsContext } from "@/components/settings-provider";
 import { api } from "@/lib/api";
 import { APP_INFO } from "@/lib/app-info";
 import icon from "../../../../src-tauri/icons/128x128.png";
+import { SettingsCard } from "../settings-card";
 import { UpdateRow } from "./update-row";
 
 export function About() {
-  const { cfg, t, version } = useSettingsContext();
+  const { t, version } = useSettingsContext();
   return (
     <>
       <div className="flex items-center gap-4">
@@ -17,7 +18,7 @@ export function About() {
           <div className="text-xs text-muted-foreground">{version}</div>
         </div>
       </div>
-      <ItemGroup className="gap-3">
+      <SettingsCard>
         <UpdateRow />
         <Item variant="muted">
           <ItemContent>
@@ -47,17 +48,7 @@ export function About() {
             </Button>
           </ItemActions>
         </Item>
-        <Item variant="muted">
-          <ItemContent>
-            <ItemTitle>{t.openFolder}</ItemTitle>
-          </ItemContent>
-          <ItemActions>
-            <Button variant="outline" onClick={() => api.openFolder(cfg.output_dir)}>
-              {t.open}
-            </Button>
-          </ItemActions>
-        </Item>
-      </ItemGroup>
+      </SettingsCard>
     </>
   );
 }

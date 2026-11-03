@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::AppHandle;
 use windows::Win32::Media::MediaFoundation::{
-    IMF2DBuffer, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
+    IMF2DBuffer, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
     MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_SOURCE_READER_ALL_STREAMS,
-    MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING,
+    MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
     MF_SOURCE_READERF_ENDOFSTREAM, MF_VERSION, MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromURL,
     MFMediaType_Video, MFSTARTUP_LITE, MFShutdown, MFStartup, MFVideoArea, MFVideoFormat_RGB32,
 };
@@ -24,11 +25,12 @@ const FPS_PRESETS: [u32; 3] = [10, 15, 20];
 const WIDTH_PRESETS: [u32; 3] = [480, 640, 800];
 const END_SLACK_MS: u64 = 100;
 const HNS_PER_SECOND: u64 = 10_000_000;
-const HNS_PER_MS: u64 = 10_000;
+pub(crate) const HNS_PER_MS: u64 = 10_000;
 const CENTISECONDS_PER_SECOND: u64 = 100;
 const ENCODER_SPEED: i32 = 10;
 const BYTES_PER_PIXEL: usize = 4;
 const OPAQUE: u8 = 255;
+const READER_ATTRIBUTES: u32 = 2;
 
 pub(crate) struct Media;
 
@@ -48,14 +50,15 @@ impl Drop for Media {
     }
 }
 
-struct Video {
+pub(crate) struct Video {
     reader: IMFSourceReader,
-    width: u32,
-    height: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
     left: u32,
     top: u32,
     stride: usize,
-    duration: u64,
+    pub(crate) duration: u64,
+    pub(crate) fps: Option<f64>,
 }
 
 fn stream() -> u32 {
@@ -76,12 +79,13 @@ fn aperture(ty: &IMFMediaType, width: u32, height: u32) -> (u32, u32, u32, u32) 
     (left, top, (area.Area.cx as u32).min(width - left), (area.Area.cy as u32).min(height - top))
 }
 
-fn open(path: &Path) -> windows::core::Result<Video> {
+pub(crate) fn open(path: &Path) -> windows::core::Result<Video> {
     unsafe {
         let mut attrs = None;
-        MFCreateAttributes(&mut attrs, 1)?;
+        MFCreateAttributes(&mut attrs, READER_ATTRIBUTES)?;
         let attrs = attrs.ok_or_else(windows::core::Error::empty)?;
-        attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)?;
+        attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)?;
+        attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)?;
         let reader = MFCreateSourceReaderFromURL(&HSTRING::from(path.as_os_str()), &attrs)?;
         reader.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)?;
         reader.SetStreamSelection(stream(), true)?;
@@ -96,7 +100,11 @@ fn open(path: &Path) -> windows::core::Result<Video> {
         let stride = frame_width as usize * BYTES_PER_PIXEL;
         let duration = reader.GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)?;
         let duration = u64::try_from(&duration)?;
-        Ok(Video { reader, width, height, left, top, stride, duration })
+        let fps = current.GetUINT64(&MF_MT_FRAME_RATE).ok().and_then(|rate| {
+            let (num, den) = ((rate >> 32) as u32, rate as u32);
+            (num > 0 && den > 0).then(|| f64::from(num) / f64::from(den))
+        });
+        Ok(Video { reader, width, height, left, top, stride, duration, fps })
     }
 }
 
@@ -112,7 +120,7 @@ impl Video {
         unsafe { self.reader.SetCurrentPosition(&GUID::zeroed(), &position) }
     }
 
-    fn read(&self) -> windows::core::Result<Option<(IMFSample, u64)>> {
+    pub(crate) fn read(&self) -> windows::core::Result<Option<(IMFSample, u64)>> {
         loop {
             let mut flags = 0u32;
             let mut stamp = 0i64;
@@ -129,17 +137,13 @@ impl Video {
         }
     }
 
-    fn image(&self, sample: &IMFSample) -> windows::core::Result<RgbaImage> {
+    fn rows(&self, sample: &IMFSample, height: u32, mut row: impl FnMut(usize, &[u8])) -> windows::core::Result<()> {
         let buffer = unsafe { sample.ConvertToContiguousBuffer()? };
-        let mut img = RgbaImage::new(self.width, self.height);
         let mut copy = |scan0: *const u8, pitch: isize| {
-            for (y, row) in img.rows_mut().enumerate() {
+            for y in 0..height as usize {
                 let line = unsafe { scan0.offset((y as isize + self.top as isize) * pitch) };
                 let line = unsafe { line.add(self.left as usize * BYTES_PER_PIXEL) };
-                let src = unsafe { std::slice::from_raw_parts(line, self.width as usize * BYTES_PER_PIXEL) };
-                for (px, bgra) in row.zip(src.as_chunks::<BYTES_PER_PIXEL>().0) {
-                    px.0 = [bgra[2], bgra[1], bgra[0], OPAQUE];
-                }
+                row(y, unsafe { std::slice::from_raw_parts(line, self.width as usize * BYTES_PER_PIXEL) });
             }
         };
         if let Ok(planar) = buffer.cast::<IMF2DBuffer>() {
@@ -154,7 +158,28 @@ impl Video {
             copy(data as *const u8, self.stride as isize);
             unsafe { buffer.Unlock()? };
         }
+        Ok(())
+    }
+
+    pub(crate) fn image(&self, sample: &IMFSample) -> windows::core::Result<RgbaImage> {
+        let mut img = RgbaImage::new(self.width, self.height);
+        let row_len = self.width as usize * BYTES_PER_PIXEL;
+        self.rows(sample, self.height, |y, src| {
+            let dst = &mut img.as_mut()[y * row_len..(y + 1) * row_len];
+            for (px, bgra) in dst.as_chunks_mut::<BYTES_PER_PIXEL>().0.iter_mut().zip(src.as_chunks::<BYTES_PER_PIXEL>().0) {
+                *px = [bgra[2], bgra[1], bgra[0], OPAQUE];
+            }
+        })?;
         Ok(img)
+    }
+
+    pub(crate) fn bottom_up_bgra(&self, sample: &IMFSample, width: u32, height: u32, out: &mut Vec<u8>) -> windows::core::Result<()> {
+        let row_len = width as usize * BYTES_PER_PIXEL;
+        out.resize(row_len * height as usize, 0);
+        self.rows(sample, height, |y, src| {
+            let start = (height as usize - 1 - y) * row_len;
+            out[start..start + row_len].copy_from_slice(&src[..row_len]);
+        })
     }
 }
 

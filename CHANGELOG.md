@@ -2,6 +2,20 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.11.0] - 2026-11-03
+
+### Added
+- Edit transcripts: in the viewer's transcript pane, hover a line and click the pencil (or double-click it) to fix its text. Enter saves it into the `.srt` file with the same timings, Escape cancels. Editing is unavailable while the video is being transcribed.
+- Export with subtitles: burn a transcript into a copy of the video from the transcript pane (Captions button). Choose the position (Bottom / Top) and the size (Small / Medium / Large) with a preview. The result is saved as `_subtitled.mp4` next to the original, which is kept, the sound is kept, and the export runs in the background queue with progress and Cancel. Videos that already have a transcript also offer it when you right-click them in the gallery.
+- Background tasks panel: a button next to the close button of the settings window opens a side panel with the tasks in progress (progress and Cancel) and a short message tells you when tasks are added to the queue. The queue no longer stays on screen as a toast.
+- Task history: finished, failed and cancelled background tasks stay listed in the background tasks panel until you restart Snapr or clear the list. Show a result in Explorer, or retry a failed or cancelled task from there.
+- AI models page: download, switch and delete the PaddleOCR and Whisper models in one place, with the total disk space they use. The Text and Recording pages show whether the model they need is ready and link to it, and each model links back to the setting that uses it.
+
+### Changed
+- Settings are split into separate pages in the sidebar (General, Capture, Text, Recording, Hotkeys, Action Ring, AI models, with About at the bottom) instead of one long scrolling page, and related options are grouped into cards.
+- The Action Ring on / off switch and its hotkey are now on the Action Ring page, which is always listed in the sidebar.
+- Exporting with subtitles is much faster: videos are decoded on the graphics card when possible and frames without a subtitle are no longer reprocessed. GIF exports also decode faster.
+
 ## [1.10.0] - 2026-11-03
 
 ### Added

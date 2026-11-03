@@ -1,4 +1,3 @@
-import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { TranscriptLanguage } from "@/lib/api";
@@ -18,23 +17,19 @@ export function TranscriptLanguageRow() {
   };
 
   return (
-    <Item variant="muted">
-      <ItemContent>
-        <ItemTitle>{t.transcriptLanguage}</ItemTitle>
-      </ItemContent>
-      <ItemActions>
-        <ToggleGroup variant="outline" size="sm" value={[cfg.transcript_language]} onValueChange={change}>
-          {LANGUAGES.map((l) => (
-            <ToggleGroupItem
-              key={l.value}
-              value={l.value}
-              className="text-muted-foreground aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
-            >
-              {t[l.label]}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </ItemActions>
-    </Item>
+    <div className="flex basis-full items-center justify-between gap-3">
+      <span className="text-sm">{t.transcriptLanguage}</span>
+      <ToggleGroup variant="outline" size="sm" value={[cfg.transcript_language]} onValueChange={change}>
+        {LANGUAGES.map((l) => (
+          <ToggleGroupItem
+            key={l.value}
+            value={l.value}
+            className="text-muted-foreground aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+          >
+            {t[l.label]}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
   );
 }

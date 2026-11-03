@@ -8,7 +8,9 @@ import { useUpdate } from "./use-update";
 import { useWhisper } from "./use-whisper";
 
 export type View = "splash" | "setup" | "settings";
-export type SectionId = "gallery" | "settings" | "ring";
+export type SectionId = "gallery" | "general" | "capture" | "text" | "recording" | "hotkeys" | "ring" | "models" | "about";
+
+const LEGACY_SECTIONS: Record<string, SectionId> = { settings: "general" };
 
 export function useSettings() {
   const [cfg, setCfg] = useState<Config | null>(null);
@@ -19,9 +21,8 @@ export function useSettings() {
   const [windowsOcr, setWindowsOcr] = useState(false);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<View>("settings");
-  const [section, setSection] = useState<SectionId>("settings");
+  const [section, setSection] = useState<SectionId>("general");
   const [version, setVersion] = useState("");
-  const [group, setGroup] = useState<string | null>(null);
   const firstLoad = useRef(true);
   const timer = useRef<number>(0);
 
@@ -47,9 +48,7 @@ export function useSettings() {
       setFailed(false);
       if (fromEvent) {
         clearTimeout(timer.current);
-        const about = openSection === "about";
-        setSection(about ? "settings" : (openSection as SectionId) || "settings");
-        setGroup(about ? "about" : null);
+        setSection(LEGACY_SECTIONS[openSection ?? ""] ?? ((openSection as SectionId) || "general"));
         setView(s.first_run ? "setup" : "settings");
       } else if (firstLoad.current) {
         firstLoad.current = false;
@@ -152,8 +151,6 @@ export function useSettings() {
     paddle,
     whisper,
     updater,
-    group,
-    setGroup,
     textActive,
     rows,
     failed,

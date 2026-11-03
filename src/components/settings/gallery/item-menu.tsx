@@ -20,6 +20,9 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
       {isMp4(item) && <ContextMenuItem onClick={() => actions.openGif(item)}>{t.exportGif}</ContextMenuItem>}
       {isMp4(item) && <ContextMenuItem onClick={() => actions.openCompress(item)}>{t.compressVideo}</ContextMenuItem>}
       {isMp4(item) && <ContextMenuItem onClick={() => actions.transcribe(item)}>{t.transcribe}</ContextMenuItem>}
+      {isMp4(item) && item.transcript && (
+        <ContextMenuItem onClick={() => actions.openSubtitleFromTranscript(item)}>{t.exportSubtitles}</ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onClick={() => actions.remove(item)}>
         {t.deleteItem}

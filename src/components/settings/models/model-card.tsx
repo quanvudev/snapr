@@ -3,59 +3,56 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/co
 import { Progress, ProgressValue } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
-import type { PaddleSize } from "@/lib/api";
-import { paddleLabels } from "./paddle-labels";
+import { PERCENT } from "@/lib/queue";
+import { labelOf, type ModelStore } from "./stores";
 
-const SIZES: PaddleSize[] = ["tiny", "small", "medium"];
+type Props = { title: string; description?: string; store: ModelStore; children?: React.ReactNode };
 
-export function PaddleModelRow() {
-  const { cfg, t, paddle, update } = useSettingsContext();
-  const { sizes, descs } = paddleLabels(t);
-  const size = cfg.paddle_model;
-  const active = paddle.progress;
-  const failed = paddle.error?.size === size ? paddle.error.message : null;
-  const ready = paddle.status.ready.includes(size);
+export function ModelCard({ title, description, store, children }: Props) {
+  const { t } = useSettingsContext();
+  const { progress, error, selected } = store;
+  const failed = error?.id === selected ? error.message : null;
+  const ready = store.ready.includes(selected);
+  const percent = progress && progress.total > 0 ? (progress.done / progress.total) * PERCENT : 0;
   const change = (value: string[]) => {
-    const paddle_model = value[0] as PaddleSize | undefined;
-    if (paddle_model) update({ ...cfg, paddle_model });
+    if (value[0]) store.select(value[0]);
   };
-  const percent = active && active.total > 0 ? (active.done / active.total) * 100 : 0;
 
   return (
     <Item variant="muted" className="flex-wrap">
       <ItemContent>
-        <ItemTitle>{t.paddleModel}</ItemTitle>
-        <ItemDescription>{descs[size]}</ItemDescription>
-        <ItemDescription>{t.paddleNoVi}</ItemDescription>
-        <ItemDescription>{t.runtimeNote}</ItemDescription>
+        <ItemTitle>{title}</ItemTitle>
+        {description && <ItemDescription>{description}</ItemDescription>}
       </ItemContent>
       <ItemActions>
-        <ToggleGroup variant="outline" size="sm" value={[size]} onValueChange={change}>
-          {SIZES.map((s) => (
+        <ToggleGroup variant="outline" size="sm" value={[selected]} onValueChange={change}>
+          {store.options.map((option) => (
             <ToggleGroupItem
-              key={s}
-              value={s}
+              key={option.id}
+              value={option.id}
               className="text-muted-foreground aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground"
             >
-              {sizes[s]}
+              {option.label}
+              {option.detail && ` · ${option.detail}`}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
       </ItemActions>
-      {active ? (
+      {children}
+      {progress ? (
         <div className="flex basis-full items-center gap-3">
           <Progress value={percent} className="flex-1">
-            <span className="text-sm">{t.paddleDownloading.replace("{size}", sizes[active.size])}</span>
+            <span className="text-sm">{t.modelDownloading.replace("{name}", labelOf(store, progress.id))}</span>
             <ProgressValue>{() => `${Math.round(percent)}%`}</ProgressValue>
           </Progress>
-          <Button size="sm" variant="outline" onClick={paddle.cancel}>
+          <Button size="sm" variant="outline" onClick={store.cancel}>
             {t.cancel}
           </Button>
         </div>
       ) : failed ? (
         <div className="flex basis-full items-center justify-between gap-3">
           <span className="text-sm text-destructive">{t.paddleFailed.replace("{error}", failed)}</span>
-          <Button size="sm" variant="outline" onClick={() => paddle.download(size)}>
+          <Button size="sm" variant="outline" onClick={() => store.download(selected)}>
             {t.paddleRetry}
           </Button>
         </div>
@@ -63,7 +60,7 @@ export function PaddleModelRow() {
         !ready && (
           <div className="flex basis-full items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{t.paddleNotDownloaded}</span>
-            <Button size="sm" variant="outline" onClick={() => paddle.download(size)}>
+            <Button size="sm" variant="outline" onClick={() => store.download(selected)}>
               {t.paddleDownload}
             </Button>
           </div>

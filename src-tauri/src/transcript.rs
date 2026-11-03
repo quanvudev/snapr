@@ -6,7 +6,7 @@ use crate::config::WhisperModel;
 use crate::gif::Media;
 use crate::queue::{self, CANCELLED, Progress, Task};
 use crate::{onnx, video, whisper};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::ErrorKind;
@@ -19,16 +19,18 @@ use windows::Win32::Media::MediaFoundation::{
     MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_MEDIASOURCE,
     MF_SOURCE_READERF_ENDOFSTREAM, MFAudioFormat_Float, MFCreateMediaType, MFCreateSourceReaderFromURL, MFMediaType_Audio,
 };
-use windows::core::HSTRING;
+use windows::core::{GUID, HSTRING};
 
 pub const NO_AUDIO: &str = "NO_AUDIO";
 pub const MODEL_MISSING: &str = "MODEL_MISSING";
+pub const TRANSCRIBING: &str = "TRANSCRIBING";
 const KIND: &str = "transcribe";
-const SRT_EXT: &str = "srt";
+pub(crate) const SRT_EXT: &str = "srt";
 const SAMPLE_RATE: u32 = 16_000;
 const CHANNELS: u32 = 1;
 const SAMPLE_BYTES: u32 = 4;
 const BITS_PER_SAMPLE: u32 = 32;
+const BITS_PER_BYTE: u32 = 8;
 const PROGRESS_TOTAL: u64 = 100;
 const DECODE_PERCENT: u64 = 10;
 const MS_PER_SECOND: u64 = 1000;
@@ -36,8 +38,17 @@ const SECONDS_PER_MINUTE: u64 = 60;
 const MINUTES_PER_HOUR: u64 = 60;
 const ARROW: &str = "-->";
 const TIME_PARTS: usize = 3;
+const WHISPER_AUDIO: AudioFormat =
+    AudioFormat { subtype: MFAudioFormat_Float, rate: SAMPLE_RATE, channels: CHANNELS, bits: BITS_PER_SAMPLE };
 
-#[derive(Clone, Serialize)]
+pub(crate) struct AudioFormat {
+    pub(crate) subtype: GUID,
+    pub(crate) rate: u32,
+    pub(crate) channels: u32,
+    pub(crate) bits: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Segment {
     pub start_ms: u64,
     pub end_ms: u64,
@@ -57,7 +68,7 @@ fn audio_stream() -> u32 {
     MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32
 }
 
-fn open_audio(path: &Path) -> Result<IMFSourceReader, String> {
+pub(crate) fn open_audio(path: &Path, format: &AudioFormat) -> Result<IMFSourceReader, String> {
     let fail = |e: windows::core::Error| e.to_string();
     unsafe {
         let reader = MFCreateSourceReaderFromURL(&HSTRING::from(path.as_os_str()), None::<&IMFAttributes>).map_err(fail)?;
@@ -65,12 +76,13 @@ fn open_audio(path: &Path) -> Result<IMFSourceReader, String> {
         reader.SetStreamSelection(audio_stream(), true).map_err(|_| NO_AUDIO.to_string())?;
         let ty = MFCreateMediaType().map_err(fail)?;
         ty.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio).map_err(fail)?;
-        ty.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float).map_err(fail)?;
-        ty.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, CHANNELS).map_err(fail)?;
-        ty.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, SAMPLE_RATE).map_err(fail)?;
-        ty.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, BITS_PER_SAMPLE).map_err(fail)?;
-        ty.SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, CHANNELS * SAMPLE_BYTES).map_err(fail)?;
-        ty.SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, SAMPLE_RATE * CHANNELS * SAMPLE_BYTES).map_err(fail)?;
+        let block = format.channels * format.bits / BITS_PER_BYTE;
+        ty.SetGUID(&MF_MT_SUBTYPE, &format.subtype).map_err(fail)?;
+        ty.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, format.channels).map_err(fail)?;
+        ty.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, format.rate).map_err(fail)?;
+        ty.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, format.bits).map_err(fail)?;
+        ty.SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, block).map_err(fail)?;
+        ty.SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, format.rate * block).map_err(fail)?;
         reader.SetCurrentMediaType(audio_stream(), None, &ty).map_err(fail)?;
         Ok(reader)
     }
@@ -83,15 +95,8 @@ fn duration_hns(reader: &IMFSourceReader) -> u64 {
         .unwrap_or(0)
 }
 
-pub fn pcm(path: &Path, cancel: &AtomicBool, progress: &dyn Fn(f32)) -> Result<Vec<f32>, String> {
-    let _media = Media::start()?;
-    let reader = open_audio(path)?;
-    let duration = duration_hns(&reader);
-    let mut samples = Vec::new();
+pub(crate) fn read_audio(reader: &IMFSourceReader) -> Result<Option<(Vec<u8>, u64)>, String> {
     loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(CANCELLED.into());
-        }
         let mut flags = 0u32;
         let mut stamp = 0i64;
         let mut sample = None;
@@ -101,18 +106,32 @@ pub fn pcm(path: &Path, cancel: &AtomicBool, progress: &dyn Fn(f32)) -> Result<V
                 .map_err(|e| e.to_string())?;
         }
         if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
-            break;
+            return Ok(None);
         }
         let Some(sample) = sample else { continue };
         let buffer = unsafe { sample.ConvertToContiguousBuffer() }.map_err(|e| e.to_string())?;
         let mut data = std::ptr::null_mut();
         let mut len = 0u32;
         unsafe { buffer.Lock(&mut data, None, Some(&mut len)) }.map_err(|e| e.to_string())?;
-        let bytes = unsafe { std::slice::from_raw_parts(data as *const u8, len as usize) };
-        samples.extend(bytes.as_chunks::<{ SAMPLE_BYTES as usize }>().0.iter().map(|b| f32::from_le_bytes(*b)));
+        let bytes = unsafe { std::slice::from_raw_parts(data as *const u8, len as usize) }.to_vec();
         unsafe { buffer.Unlock() }.map_err(|e| e.to_string())?;
+        return Ok(Some((bytes, stamp.max(0) as u64)));
+    }
+}
+
+pub fn pcm(path: &Path, cancel: &AtomicBool, progress: &dyn Fn(f32)) -> Result<Vec<f32>, String> {
+    let _media = Media::start()?;
+    let reader = open_audio(path, &WHISPER_AUDIO)?;
+    let duration = duration_hns(&reader);
+    let mut samples = Vec::new();
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(CANCELLED.into());
+        }
+        let Some((bytes, stamp)) = read_audio(&reader)? else { break };
+        samples.extend(bytes.as_chunks::<{ SAMPLE_BYTES as usize }>().0.iter().map(|b| f32::from_le_bytes(*b)));
         if duration > 0 {
-            progress((stamp.max(0) as f32 / duration as f32).min(1.0));
+            progress((stamp as f32 / duration as f32).min(1.0));
         }
     }
     Ok(samples)
@@ -143,7 +162,7 @@ fn parse_clock(text: &str) -> Option<u64> {
     Some(total_seconds * MS_PER_SECOND + millis)
 }
 
-fn parse_srt(text: &str) -> Vec<Segment> {
+pub(crate) fn parse_srt(text: &str) -> Vec<Segment> {
     let normalized = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
     normalized
         .split("\n\n")
@@ -235,4 +254,15 @@ pub fn transcript_read(app: AppHandle, path: String) -> Result<Option<Vec<Segmen
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+#[tauri::command]
+pub fn transcript_save(app: AppHandle, path: String, segments: Vec<Segment>) -> Result<(), String> {
+    let path = video::guarded_mp4(&app, &path)?;
+    if app.state::<crate::State>().queue.has(KIND, &path) {
+        return Err(TRANSCRIBING.into());
+    }
+    let dir = path.parent().ok_or("no output folder")?;
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    queue::write_part_to(dir, &stem, SRT_EXT, |part| write_srt(part, &segments), || path.with_extension(SRT_EXT)).map(drop)
 }

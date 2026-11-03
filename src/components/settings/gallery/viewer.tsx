@@ -32,6 +32,8 @@ type Props = {
   onClose: () => void;
 };
 
+const IGNORED_KEY_TARGETS = 'input, textarea, [contenteditable], [role="dialog"]';
+
 type Meta = { w: number; h: number; duration?: number };
 
 export function Viewer(props: Props) {
@@ -73,6 +75,8 @@ export function Viewer(props: Props) {
   useEffect(() => {
     if (paused) return;
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(IGNORED_KEY_TARGETS)) return;
       const ctrl = e.ctrlKey || e.metaKey;
       if (e.key === "ArrowLeft") onStep(-1);
       else if (e.key === "ArrowRight") onStep(1);
@@ -184,7 +188,14 @@ export function Viewer(props: Props) {
           </ContextMenuContent>
         </ContextMenu>
         {text && <TextPane text={text} onClose={onCloseText} />}
-        {transcriptOpen && <TranscriptPane path={item.path} video={video} onClose={onCloseTranscript} />}
+        {transcriptOpen && (
+          <TranscriptPane
+            path={item.path}
+            video={video}
+            onClose={onCloseTranscript}
+            onExport={(ms, text) => actions.openSubtitle(item, ms, text)}
+          />
+        )}
       </div>
       <div className="animate-in duration-200 fade-in-0 slide-in-from-bottom-2">
         <ViewerStrip items={items} activePath={item.path} onSelect={onSelect} />

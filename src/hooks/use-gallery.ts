@@ -10,10 +10,13 @@ import {
   loadGifPreset,
   saveCompressChoice,
   saveGifPreset,
+  saveSubtitlePreset,
+  subtitleSpec,
   taskError,
   transcribeSpec,
   type CompressChoice,
   type GifRange,
+  type SubtitlePreset,
 } from "@/lib/queue";
 
 export type TextResult = { result?: Recognized; error?: string };
@@ -29,6 +32,8 @@ function storedTile() {
     return TILE.initial;
   }
 }
+
+export type SubtitleTarget = { item: GalleryItem; ms: number; text: string };
 
 export function useGallery() {
   const { t } = useSettingsContext();
@@ -49,6 +54,7 @@ export function useGallery() {
   const [pendingDelete, setPendingDelete] = useState<GalleryItem[] | null>(null);
   const [gifTarget, setGifTarget] = useState<GalleryItem | null>(null);
   const [compressTarget, setCompressTarget] = useState<GalleryItem | null>(null);
+  const [subtitleTarget, setSubtitleTarget] = useState<SubtitleTarget | null>(null);
   const [textOpen, setTextOpen] = useState(false);
   const [texts, setTexts] = useState<Map<string, TextResult>>(new Map());
   const [transcriptOpen, setTranscriptOpen] = useState(false);
@@ -226,6 +232,12 @@ export function useGallery() {
     run(api.queueAdd(compressSpec(item.path, choice)));
   };
 
+  const exportSubtitle = (item: GalleryItem, preset: SubtitlePreset) => {
+    setSubtitleTarget(null);
+    saveSubtitlePreset(preset);
+    api.queueAdd(subtitleSpec(item.path, preset)).catch((e) => report(taskError(strings.current, e)));
+  };
+
   const compressFailed = (e: unknown) => {
     setCompressTarget(null);
     report(e);
@@ -322,6 +334,8 @@ export function useGallery() {
     closeGif: () => setGifTarget(null),
     compressTarget,
     closeCompress: () => setCompressTarget(null),
+    subtitleTarget,
+    closeSubtitle: () => setSubtitleTarget(null),
     addSelected,
     toggleSelect,
     selectRange,
@@ -353,6 +367,18 @@ export function useGallery() {
       openCompress: (item: GalleryItem) => setCompressTarget(item),
       compress,
       compressFailed,
+      openSubtitle: (item: GalleryItem, ms: number, text: string) => setSubtitleTarget({ item, ms, text }),
+      openSubtitleFromTranscript: (item: GalleryItem) => {
+        api
+          .transcriptRead(item.path)
+          .then((segments) => {
+            const cue = segments?.find((s) => s.text.trim());
+            if (!cue) throw "NO_TRANSCRIPT";
+            setSubtitleTarget({ item, ms: cue.start_ms, text: cue.text });
+          })
+          .catch((e) => report(taskError(strings.current, e)));
+      },
+      exportSubtitle,
       compressSelected,
       transcribe: (item: GalleryItem) => transcribeAll([item]),
       transcribeSelected: () => transcribeAll(videos),

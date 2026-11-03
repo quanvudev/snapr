@@ -15,6 +15,7 @@ import { CompressDialog } from "./compress-dialog";
 import { DeleteDialog } from "./delete-dialog";
 import { GalleryGroup } from "./gallery-group";
 import { GifDialog } from "./gif-dialog";
+import { SubtitleDialog } from "./subtitle-dialog";
 import { Viewer } from "./viewer";
 
 export function Gallery() {
@@ -58,7 +59,7 @@ export function Gallery() {
           {...g.viewer}
           items={g.items}
           actions={g.actions}
-          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget}
+          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget || !!g.subtitleTarget}
           text={g.text}
           onToggleText={g.toggleText}
           onCloseText={g.closeText}
@@ -224,6 +225,7 @@ export function Gallery() {
 onCompress={g.actions.compress}
         onError={g.actions.compressFailed}
       />
+      <SubtitleDialog target={g.subtitleTarget} onClose={g.closeSubtitle} onExport={g.actions.exportSubtitle} />
       <DeleteDialog items={g.pendingDelete} onCancel={g.cancelDelete} onConfirm={g.confirmDelete} />
     </div>
   );

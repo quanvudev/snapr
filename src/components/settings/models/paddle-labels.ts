@@ -1,7 +1,7 @@
 import type { PaddleSize } from "@/lib/api";
-import type { T } from "@/lib/i18n";
+import type { Strings } from "@/lib/queue";
 
-type Strings = (typeof T)["en"];
+export const PADDLE_SIZES: PaddleSize[] = ["tiny", "small", "medium"];
 
 export function paddleLabels(t: Strings): { sizes: Record<PaddleSize, string>; descs: Record<PaddleSize, string> } {
   return {

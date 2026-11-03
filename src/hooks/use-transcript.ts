@@ -47,12 +47,13 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
   }, [load]);
 
   useEffect(() => {
-    const find = (items: QueueItem[]) => items.find((item) => item.source === path) ?? null;
+    const find = (items: QueueItem[]) =>
+      items.find((item) => item.kind === "transcribe" && item.source === path) ?? null;
     api.queueList().then((items) => setJob(find(items))).catch(report);
     const subs = [
       api.onQueue((items) => setJob(find(items))),
       api.onQueueEnded((ended) => {
-        if (ended.source !== path) return;
+        if (ended.kind !== "transcribe" || ended.source !== path) return;
         if (ended.error) {
           const message = taskError(strings.current, ended.error);
           setErrors((prev) => new Map(prev).set(path, message));
@@ -94,12 +95,22 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
     api.queueAdd(transcribeSpec(path)).catch(report);
   };
 
+  const save = (index: number, text: string) => {
+    if (!segments) return Promise.resolve();
+    const next = segments.map((segment, i) => (i === index ? { ...segment, text } : segment));
+    return api
+      .transcriptSave(path, next)
+      .then(() => setLoaded({ path, segments: next }))
+      .catch(report);
+  };
+
   return {
     segments,
     active,
     running: job ? { waiting: job.state === "waiting", percent: percent(job.done, job.total) } : null,
     error: errors.get(path) ?? null,
     create,
+    save,
     cancel: () => {
       if (job) api.queueCancel(job.id).catch(report);
     },

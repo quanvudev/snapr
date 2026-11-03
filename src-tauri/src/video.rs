@@ -220,7 +220,7 @@ pub fn compress_recording(app: &AppHandle, path: PathBuf, height: u32, quality: 
             return;
         }
         let task = CompressTask { path, out_dir, quality, height: Some(height), replace: true };
-        app.state::<State>().queue.add(&app, Box::new(task));
+        app.state::<State>().queue.add(&app, Box::new(task), None);
     });
 }
 

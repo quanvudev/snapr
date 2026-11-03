@@ -1,8 +1,7 @@
-import { createElement, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
-import { QueueToast } from "@/components/settings/gallery/queue-toast";
-import { api, type QueueItem } from "@/lib/api";
+import { api, type HistoryItem, type QueueItem } from "@/lib/api";
 import { taskError } from "@/lib/queue";
 
 export function useQueue() {
@@ -10,11 +9,11 @@ export function useQueue() {
   const strings = useRef(t);
   strings.current = t;
   const [items, setItems] = useState<QueueItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [open, setOpen] = useState(false);
   const itemsRef = useRef<QueueItem[]>([]);
-  const finished = useRef(0);
+  const knownIds = useRef<Set<number>>(new Set());
   const succeeded = useRef(0);
-  const toastId = useRef<string | null>(null);
-  const dismissed = useRef(false);
 
   const report = useCallback(
     (e: unknown) => toast.add({ type: "error", title: strings.current.galleryFailed, description: String(e) }),
@@ -28,18 +27,45 @@ export function useQueue() {
         title: strings.current.queueDone.replace("{count}", String(succeeded.current)),
       });
     }
-    finished.current = 0;
     succeeded.current = 0;
   }, []);
 
+  const announceAdded = useCallback((added: QueueItem[]) => {
+    const text = strings.current;
+    const title =
+      added.length === 1
+        ? text.queueAdded.replace("{name}", added[0].name)
+        : text.queueAddedMany.replace("{count}", String(added.length));
+    toast.add({ title, actionProps: { children: text.queueView, onClick: () => setOpen(true) } });
+  }, []);
+
+  const follow = useCallback(
+    (list: QueueItem[]) => {
+      const added = list.filter((item) => !knownIds.current.has(item.id));
+      knownIds.current = new Set(list.map((item) => item.id));
+      setItems(list);
+      if (added.length) announceAdded(added);
+    },
+    [announceAdded],
+  );
+
   useEffect(() => {
-    const load = () => api.queueList().then(setItems).catch(report);
+    const load = () => {
+      api
+        .queueList()
+        .then((list) => {
+          knownIds.current = new Set(list.map((item) => item.id));
+          setItems(list);
+        })
+        .catch(report);
+      api.queueHistory().then(setHistory).catch(report);
+    };
     load();
     const subs = [
-      api.onQueue(setItems),
+      api.onQueue(follow),
+      api.onQueueHistory(setHistory),
       api.onSettingsOpen(load),
       api.onQueueEnded((ended) => {
-        finished.current += 1;
         if (ended.error) {
           toast.add({
             type: "error",
@@ -55,40 +81,26 @@ export function useQueue() {
     return () => {
       subs.forEach((s) => s.then((f) => f()));
     };
-  }, [report, settle]);
+  }, [report, settle, follow]);
 
   useEffect(() => {
     itemsRef.current = items;
-    if (!items.length) {
-      dismissed.current = false;
-      if (toastId.current) toast.close(toastId.current);
-      toastId.current = null;
-      settle();
-      return;
-    }
-    if (dismissed.current) return;
-    const title = t.queueProcessing
-      .replace("{index}", String(finished.current + 1))
-      .replace("{total}", String(finished.current + items.length));
-    const description = createElement(QueueToast, {
-      t,
-      items,
-      onCancel: (id: number) => api.queueCancel(id).catch(report),
-      onCancelAll: () => api.queueCancelAll().catch(report),
-    });
-    if (toastId.current) {
-      toast.update(toastId.current, { title, description });
-      return;
-    }
-    toastId.current = toast.add({
-      type: "loading",
-      timeout: 0,
-      title,
-      description,
-      onClose: () => {
-        toastId.current = null;
-        dismissed.current = itemsRef.current.length > 0;
-      },
-    });
-  }, [items, t, report, settle]);
+    if (!items.length) settle();
+  }, [items, settle]);
+
+  return {
+    items,
+    history,
+    count: items.length,
+    open,
+    setOpen,
+    cancel: (id: number) => api.queueCancel(id).catch(report),
+    cancelAll: () => api.queueCancelAll().catch(report),
+    retry: (id: number) =>
+      api.queueRetry(id).catch((e) =>
+        toast.add({ type: "error", title: strings.current.queueFailed, description: taskError(strings.current, e) }),
+      ),
+    reveal: (path: string) => api.galleryReveal(path).catch(report),
+    clear: () => api.queueHistoryClear().catch(report),
+  };
 }

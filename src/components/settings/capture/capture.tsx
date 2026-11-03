@@ -1,5 +1,5 @@
 import { useSettingsContext } from "@/components/settings-provider";
-import { ItemGroup } from "@/components/ui/item";
+import { SettingsCard } from "../settings-card";
 import { BackgroundRow } from "./background-row";
 import { PaddingRow } from "./padding-row";
 import { RadiusRow } from "./radius-row";
@@ -7,14 +7,10 @@ import { RadiusRow } from "./radius-row";
 export function Capture() {
   const { cfg } = useSettingsContext();
   return (
-    <ItemGroup className="gap-3">
+    <SettingsCard>
       <PaddingRow />
-      {cfg.padding.enabled && (
-        <>
-          <RadiusRow />
-          <BackgroundRow />
-        </>
-      )}
-    </ItemGroup>
+      {cfg.padding.enabled && <RadiusRow />}
+      {cfg.padding.enabled && <BackgroundRow />}
+    </SettingsCard>
   );
 }

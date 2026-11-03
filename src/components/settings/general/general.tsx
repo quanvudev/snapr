@@ -1,4 +1,3 @@
-import { ItemGroup } from "@/components/ui/item";
 import { useSettingsContext } from "@/components/settings-provider";
 import { ClipboardRow } from "./clipboard-row";
 import { FolderRow } from "./folder-row";
@@ -7,26 +6,26 @@ import { PreviewRow } from "./preview-row";
 import { StartupRow } from "./startup-row";
 import { ThemeRow } from "./theme-row";
 import { UpdateCheckRow } from "./update-check-row";
-
-const heading = (s: string) => <h3 className="px-1 text-xs font-medium text-muted-foreground">{s}</h3>;
+import { SectionHeading } from "../section-heading";
+import { SettingsCard } from "../settings-card";
 
 export function General() {
   const { t } = useSettingsContext();
   return (
     <>
-      {heading(t.output)}
-      <ItemGroup className="gap-3">
+      <SectionHeading>{t.output}</SectionHeading>
+      <SettingsCard>
         <FolderRow withOpen />
         <ClipboardRow />
         <PreviewRow />
-      </ItemGroup>
-      {heading(t.system)}
-      <ItemGroup className="gap-3">
+      </SettingsCard>
+      <SectionHeading>{t.system}</SectionHeading>
+      <SettingsCard>
         <StartupRow />
         <LanguageRow />
         <ThemeRow />
         <UpdateCheckRow />
-      </ItemGroup>
+      </SettingsCard>
     </>
   );
 }

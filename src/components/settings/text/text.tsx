@@ -1,22 +1,18 @@
 import { useSettingsContext } from "@/components/settings-provider";
-import { ItemGroup } from "@/components/ui/item";
+import { ModelStatusRow } from "../models/model-status-row";
+import { usePaddleStore } from "../models/stores";
+import { SettingsCard } from "../settings-card";
 import { OcrEngineRow } from "./ocr-engine-row";
-import { PaddleModelRow } from "./paddle-model-row";
-import { PaddleModelsRow } from "./paddle-models-row";
 import { TextCaptureRow } from "./text-capture-row";
 
 export function Text() {
   const { cfg } = useSettingsContext();
+  const paddle = usePaddleStore();
   return (
-    <ItemGroup className="gap-3">
+    <SettingsCard>
       <TextCaptureRow />
       <OcrEngineRow />
-      {cfg.ocr_engine === "paddle" && (
-        <>
-          <PaddleModelRow />
-          <PaddleModelsRow />
-        </>
-      )}
-    </ItemGroup>
+      {cfg.ocr_engine === "paddle" && <ModelStatusRow store={paddle} />}
+    </SettingsCard>
   );
 }

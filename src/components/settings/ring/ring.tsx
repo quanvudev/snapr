@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ItemGroup } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { BuiltinId, RingItem } from "@/lib/api";
+import { SLOTS } from "@/lib/hotkeys";
+import { cn } from "@/lib/utils";
 import { insertItem, MAX_RING_ITEMS, moveItem, removedBuiltins, removeItem, ringItems } from "@/lib/ring";
+import { HotkeyRow } from "../hotkeys/hotkey-row";
+import { RingSwitchRow } from "../hotkeys/ring-switch-row";
 import { useAppPicker } from "./app-picker";
 import { RingAvailable } from "./ring-available";
 import { RingInspector } from "./ring-inspector";
@@ -51,87 +56,93 @@ export function Ring() {
 
   return (
     <div className="space-y-4" {...drag.outside}>
-      <div className="flex items-center justify-between gap-2">
-        <Badge variant="secondary">
-          {items.length} / {MAX_RING_ITEMS} {t.ringEntries}
-        </Badge>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="text-right leading-tight">
-              <Label>{t.ringIdle}</Label>
-              <p className="text-xs text-muted-foreground">{t.ringIdleHint}</p>
+      <ItemGroup className="gap-3">
+        <RingSwitchRow />
+        {cfg.ring.enabled && <HotkeyRow i={SLOTS.indexOf("ring")} />}
+      </ItemGroup>
+      <div className={cn("space-y-4", !cfg.ring.enabled && "pointer-events-none opacity-50")}>
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="secondary">
+            {items.length} / {MAX_RING_ITEMS} {t.ringEntries}
+          </Badge>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="text-right leading-tight">
+                <Label>{t.ringIdle}</Label>
+                <p className="text-xs text-muted-foreground">{t.ringIdleHint}</p>
+              </div>
+              <Select
+                value={String(cfg.ring.idle_close)}
+                onValueChange={(v) => update({ ...cfg, ring: { ...cfg.ring, idle_close: Number(v) } })}
+              >
+                <SelectTrigger>
+                  <SelectValue>{(v: string) => idleLabel(Number(v))}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {IDLE.map((s) => (
+                    <SelectItem key={s} value={String(s)}>
+                      {idleLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select
-              value={String(cfg.ring.idle_close)}
-              onValueChange={(v) => update({ ...cfg, ring: { ...cfg.ring, idle_close: Number(v) } })}
-            >
-              <SelectTrigger>
-                <SelectValue>{(v: string) => idleLabel(Number(v))}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {IDLE.map((s) => (
-                  <SelectItem key={s} value={String(s)}>
-                    {idleLabel(s)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right leading-tight">
-              <Label htmlFor="ring-keys">{t.ringKeys}</Label>
-              <p className="text-xs text-muted-foreground">{t.ringKeysHint}</p>
+            <div className="flex items-center gap-3">
+              <div className="text-right leading-tight">
+                <Label htmlFor="ring-keys">{t.ringKeys}</Label>
+                <p className="text-xs text-muted-foreground">{t.ringKeysHint}</p>
+              </div>
+              <Switch
+                id="ring-keys"
+                checked={cfg.ring.keys}
+                onCheckedChange={(keys) => update({ ...cfg, ring: { ...cfg.ring, keys } })}
+              />
             </div>
-            <Switch
-              id="ring-keys"
-              checked={cfg.ring.keys}
-              onCheckedChange={(keys) => update({ ...cfg, ring: { ...cfg.ring, keys } })}
-            />
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setPicked(null);
-              update({ ...cfg, ring: { ...cfg.ring, items: null } });
-            }}
-          >
-            {t.restoreDefaults}
-          </Button>
-        </div>
-      </div>
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-6">
-        <RingWheel
-          items={items}
-          selected={selected}
-          removed={removed}
-          drag={drag}
-          keys={cfg.ring.keys}
-          onSelect={setPicked}
-          onAddBuiltin={addBuiltin}
-          onAddApp={addApp}
-        />
-        <div className="space-y-4">
-          {selected === null ? (
-            <p className="text-sm text-muted-foreground">{t.ringHint}</p>
-          ) : (
-            <RingInspector
-              item={items[selected]}
-              items={items}
-              onRecordingKey={setRecordingKey}
-              index={selected}
-              count={items.length}
-              onChange={(next) => save(items.map((x, i) => (i === selected ? next : x)))}
-              onMove={(to) => {
-                save(moveItem(items, selected, to));
-                setPicked(to);
-              }}
-              onRemove={() => {
-                save(removeItem(items, selected));
+            <Button
+              variant="outline"
+              onClick={() => {
                 setPicked(null);
+                update({ ...cfg, ring: { ...cfg.ring, items: null } });
               }}
-            />
-          )}
-          <RingAvailable removed={removed} full={full} drag={drag} onAddBuiltin={addBuiltin} onAddApp={addApp} />
+            >
+              {t.restoreDefaults}
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-6">
+          <RingWheel
+            items={items}
+            selected={selected}
+            removed={removed}
+            drag={drag}
+            keys={cfg.ring.keys}
+            onSelect={setPicked}
+            onAddBuiltin={addBuiltin}
+            onAddApp={addApp}
+          />
+          <div className="space-y-4">
+            {selected === null ? (
+              <p className="text-sm text-muted-foreground">{t.ringHint}</p>
+            ) : (
+              <RingInspector
+                item={items[selected]}
+                items={items}
+                onRecordingKey={setRecordingKey}
+                index={selected}
+                count={items.length}
+                onChange={(next) => save(items.map((x, i) => (i === selected ? next : x)))}
+                onMove={(to) => {
+                  save(moveItem(items, selected, to));
+                  setPicked(to);
+                }}
+                onRemove={() => {
+                  save(removeItem(items, selected));
+                  setPicked(null);
+                }}
+              />
+            )}
+            <RingAvailable removed={removed} full={full} drag={drag} onAddBuiltin={addBuiltin} onAddApp={addApp} />
+          </div>
         </div>
       </div>
       {picker.element}

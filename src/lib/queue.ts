@@ -1,4 +1,4 @@
-import type { CompressHeight, CompressInfo, Quality, TaskSpec } from "./api";
+import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, TaskSpec } from "./api";
 import type { T } from "./i18n";
 
 export type Strings = (typeof T)["en"];
@@ -7,11 +7,15 @@ export const TASK_KINDS: Record<string, { label: keyof Strings }> = {
   gif: { label: "taskGif" },
   compress: { label: "taskCompress" },
   transcribe: { label: "taskTranscribe" },
+  subtitle: { label: "taskSubtitle" },
 };
 
 const TASK_ERRORS: Record<string, keyof Strings> = {
   NO_AUDIO: "noAudio",
   MODEL_MISSING: "modelMissing",
+  TRANSCRIBING: "transcribing",
+  NO_TRANSCRIPT: "noTranscript",
+  NO_FONT: "noFont",
 };
 
 export function taskError(t: Strings, error: unknown) {
@@ -102,6 +106,54 @@ export function gifEstimate(video: { w: number; h: number }, rangeMs: number, pr
 
 export function gifSpec(path: string, preset: GifPreset, startMs: number, endMs: number | null): TaskSpec {
   return { kind: "gif", path, start_ms: startMs, end_ms: endMs, width: preset.width, fps: preset.fps };
+}
+
+export type SubtitlePreset = { position: SubtitlePosition; size: SubtitleSize };
+
+export const SUBTITLE_POSITIONS: { value: SubtitlePosition; label: keyof Strings }[] = [
+  { value: "bottom", label: "subtitleBottom" },
+  { value: "top", label: "subtitleTop" },
+];
+export const SUBTITLE_SIZES: { value: SubtitleSize; label: keyof Strings }[] = [
+  { value: "small", label: "subtitleSmall" },
+  { value: "medium", label: "subtitleMedium" },
+  { value: "large", label: "subtitleLarge" },
+];
+export const SUBTITLE_DEFAULT: SubtitlePreset = { position: "bottom", size: "medium" };
+export const SUBTITLE_SIZE_RATIO: Record<SubtitleSize, number> = { small: 0.04, medium: 0.055, large: 0.075 };
+export const MIN_TEXT_PX = 16;
+export const EDGE_MARGIN_RATIO = 0.06;
+export const MAX_WIDTH_RATIO = 0.9;
+export const BOX_ALPHA = 0.6;
+export const BOX_PADDING_X_RATIO = 0.5;
+export const BOX_PADDING_Y_RATIO = 0.25;
+export const LINE_HEIGHT_RATIO = 1.25;
+export const BOX_RADIUS_RATIO = 0.25;
+
+const SUBTITLE_KEY = "gallery.subtitle";
+
+export function loadSubtitlePreset(): SubtitlePreset {
+  try {
+    const value = JSON.parse(localStorage.getItem(SUBTITLE_KEY) ?? "null");
+    if (
+      value &&
+      SUBTITLE_POSITIONS.some((p) => p.value === value.position) &&
+      SUBTITLE_SIZES.some((s) => s.value === value.size)
+    ) {
+      return { position: value.position, size: value.size };
+    }
+  } catch {}
+  return SUBTITLE_DEFAULT;
+}
+
+export function saveSubtitlePreset(preset: SubtitlePreset) {
+  try {
+    localStorage.setItem(SUBTITLE_KEY, JSON.stringify(preset));
+  } catch {}
+}
+
+export function subtitleSpec(path: string, preset: SubtitlePreset): TaskSpec {
+  return { kind: "subtitle", path, position: preset.position, size: preset.size };
 }
 
 export function percent(done: number, total: number) {

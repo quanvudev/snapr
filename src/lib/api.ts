@@ -55,7 +55,7 @@ export type Segment = { start_ms: number; end_ms: number; text: string };
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
 export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
 export type InstalledApp = { name: string; path: string };
-export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other" };
+export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other"; transcript: boolean };
 export type BulkFailure = { path: string; error: string };
 
 export type InputDevice = { id: string; name: string; default: boolean };
@@ -77,6 +77,8 @@ export type Recognized = { qr: string[]; text: string };
 
 export type Quality = "low" | "medium" | "high";
 export type CompressHeight = 1080 | 720 | null;
+export type SubtitlePosition = "bottom" | "top";
+export type SubtitleSize = "small" | "medium" | "large";
 
 export type TaskSpec =
   | {
@@ -88,7 +90,8 @@ export type TaskSpec =
       fps: number;
     }
   | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
-  | { kind: "transcribe"; path: string };
+  | { kind: "transcribe"; path: string }
+  | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize };
 
 export type CompressInfo = {
   width: number;
@@ -106,6 +109,17 @@ export type QueueItem = {
   done: number;
   total: number;
   source: string | null;
+};
+export type HistoryState = "done" | "failed" | "cancelled";
+export type HistoryItem = {
+  id: number;
+  kind: string;
+  name: string;
+  source: string | null;
+  output: string | null;
+  state: HistoryState;
+  error: string | null;
+  retryable: boolean;
 };
 export type QueueEnded = {
   id: number;
@@ -144,6 +158,11 @@ export const api = {
   queueList:() => invoke<QueueItem[]>("queue_list"),
   queueCancel: (id: number) => invoke("queue_cancel", { id }),
   queueCancelAll: () => invoke("queue_cancel_all"),
+  queueHistory: () => invoke<HistoryItem[]>("queue_history"),
+  queueHistoryClear: () => invoke("queue_history_clear"),
+  queueRetry: (id: number) => invoke<number>("queue_retry", { id }),
+  onQueueHistory: (cb: (items: HistoryItem[]) => void) =>
+    listen<HistoryItem[]>("queue-history", (e) => cb(e.payload)),
   onQueue: (cb: (items: QueueItem[]) => void) => listen<QueueItem[]>("queue", (e) => cb(e.payload)),
   onQueueEnded: (cb: (ended: QueueEnded) => void) => listen<QueueEnded>("queue-ended", (e) => cb(e.payload)),
   paddleStatus: () => invoke<PaddleStatus>("paddle_status"),
@@ -160,6 +179,7 @@ export const api = {
     listen<WhisperProgress>("whisper-progress", (e) => cb(e.payload)),
   onWhisperDone: (cb: (d: WhisperDone) => void) => listen<WhisperDone>("whisper-done", (e) => cb(e.payload)),
   transcriptRead: (path: string) => invoke<Segment[] | null>("transcript_read", { path }),
+  transcriptSave: (path: string, segments: Segment[]) => invoke("transcript_save", { path, segments }),
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   updateCheck: () => invoke("update_check"),
   updateInstall: () => invoke("update_install"),

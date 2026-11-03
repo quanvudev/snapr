@@ -251,6 +251,7 @@ struct CachedSurface {
 
 /// Builder for configuring video encoder settings.
 pub struct VideoSettingsBuilder {
+    frame_queue: Option<usize>,
     sub_type: VideoSettingsSubType,
     bitrate: u32,
     width: u32,
@@ -271,6 +272,7 @@ impl VideoSettingsBuilder {
     /// - Disabled: false
     pub const fn new(width: u32, height: u32) -> Self {
         Self {
+            frame_queue: None,
             bitrate: 15_000_000,
             frame_rate: 60,
             pixel_aspect_ratio: (1, 1),
@@ -324,7 +326,13 @@ impl VideoSettingsBuilder {
         self
     }
 
-    fn build(self) -> Result<(VideoEncodingProperties, bool), VideoEncoderError> {
+    /// Bounds the frame queue; sends wait while it is full. Unbounded by default.
+    pub const fn frame_queue(mut self, frames: usize) -> Self {
+        self.frame_queue = Some(frames);
+        self
+    }
+
+    fn build(self) -> Result<(VideoEncodingProperties, bool, Option<usize>), VideoEncoderError> {
         let properties = VideoEncodingProperties::new()?;
         properties.SetSubtype(&self.sub_type.to_hstring())?;
         properties.SetBitrate(self.bitrate)?;
@@ -334,7 +342,51 @@ impl VideoSettingsBuilder {
         properties.FrameRate()?.SetDenominator(1)?;
         properties.PixelAspectRatio()?.SetNumerator(self.pixel_aspect_ratio.0)?;
         properties.PixelAspectRatio()?.SetDenominator(self.pixel_aspect_ratio.1)?;
-        Ok((properties, self.disabled))
+        Ok((properties, self.disabled, self.frame_queue))
+    }
+}
+
+type FrameMessage = Option<(VideoEncoderSource, TimeSpan)>;
+
+const FRAME_QUEUE_POLL: Duration = Duration::from_millis(2);
+
+enum FrameSender {
+    Unbounded(mpsc::Sender<FrameMessage>),
+    Bounded(mpsc::SyncSender<FrameMessage>),
+}
+
+impl FrameSender {
+    fn channel(bound: Option<usize>) -> (Self, mpsc::Receiver<FrameMessage>) {
+        match bound {
+            Some(bound) => {
+                let (sender, receiver) = mpsc::sync_channel(bound);
+                (Self::Bounded(sender), receiver)
+            }
+            None => {
+                let (sender, receiver) = mpsc::channel();
+                (Self::Unbounded(sender), receiver)
+            }
+        }
+    }
+
+    fn send(&self, message: FrameMessage, alive: impl Fn() -> bool) -> Result<(), mpsc::SendError<FrameMessage>> {
+        let sender = match self {
+            Self::Unbounded(sender) => return sender.send(message),
+            Self::Bounded(sender) => sender,
+        };
+        let mut message = message;
+        loop {
+            match sender.try_send(message) {
+                Ok(()) => return Ok(()),
+                Err(mpsc::TrySendError::Full(back)) if alive() => {
+                    message = back;
+                    thread::sleep(FRAME_QUEUE_POLL);
+                }
+                Err(mpsc::TrySendError::Full(back) | mpsc::TrySendError::Disconnected(back)) => {
+                    return Err(mpsc::SendError(back));
+                }
+            }
+        }
     }
 }
 
@@ -683,7 +735,7 @@ pub struct VideoEncoder {
     first_timestamp: Option<TimeSpan>,
 
     // Channels
-    frame_sender: mpsc::Sender<Option<(VideoEncoderSource, TimeSpan)>>,
+    frame_sender: FrameSender,
     audio_sender: mpsc::Sender<Option<(AudioEncoderSource, TimeSpan)>>,
 
     // MSS event tokens
@@ -871,7 +923,7 @@ impl VideoEncoder {
         let path = path.as_ref();
         let media_encoding_profile = MediaEncodingProfile::new()?;
 
-        let (video_encoding_properties_cfg, is_video_disabled) = video_settings.build()?;
+        let (video_encoding_properties_cfg, is_video_disabled, frame_queue) = video_settings.build()?;
         media_encoding_profile.SetVideo(&video_encoding_properties_cfg)?;
         let (audio_encoding_properties_cfg, is_audio_disabled) = audio_settings.build()?;
         media_encoding_profile.SetAudio(&audio_encoding_properties_cfg)?;
@@ -918,7 +970,7 @@ impl VideoEncoder {
             Ok(())
         }))?;
 
-        let (frame_sender, frame_receiver_raw) = mpsc::channel::<Option<(VideoEncoderSource, TimeSpan)>>();
+        let (frame_sender, frame_receiver_raw) = FrameSender::channel(frame_queue);
         let (audio_sender, audio_receiver_raw) = mpsc::channel::<Option<(AudioEncoderSource, TimeSpan)>>();
 
         let frame_receiver = Arc::new(Mutex::new(frame_receiver_raw));
@@ -1022,7 +1074,7 @@ impl VideoEncoder {
     ) -> Result<Self, VideoEncoderError> {
         let media_encoding_profile = MediaEncodingProfile::new()?;
 
-        let (video_encoding_properties_cfg, is_video_disabled) = video_settings.build()?;
+        let (video_encoding_properties_cfg, is_video_disabled, frame_queue) = video_settings.build()?;
         media_encoding_profile.SetVideo(&video_encoding_properties_cfg)?;
         let (audio_encoding_properties_cfg, is_audio_disabled) = audio_settings.build()?;
         media_encoding_profile.SetAudio(&audio_encoding_properties_cfg)?;
@@ -1068,7 +1120,7 @@ impl VideoEncoder {
             Ok(())
         }))?;
 
-        let (frame_sender, frame_receiver_raw) = mpsc::channel::<Option<(VideoEncoderSource, TimeSpan)>>();
+        let (frame_sender, frame_receiver_raw) = FrameSender::channel(frame_queue);
         let (audio_sender, audio_receiver_raw) = mpsc::channel::<Option<(AudioEncoderSource, TimeSpan)>>();
 
         let frame_receiver = Arc::new(Mutex::new(frame_receiver_raw));
@@ -1219,7 +1271,7 @@ impl VideoEncoder {
         };
 
         let surface = self.build_region_surface(frame, left, top)?;
-        self.frame_sender.send(Some((VideoEncoderSource::DirectX(surface), timestamp)))?;
+        self.send_frame_message(Some((VideoEncoderSource::DirectX(surface), timestamp)))?;
 
         if self.error_notify.load(atomic::Ordering::Relaxed)
             && let Some(t) = self.transcode_thread.take()
@@ -1252,7 +1304,7 @@ impl VideoEncoder {
             self.build_padded_surface(frame)?
         };
 
-        self.frame_sender.send(Some((VideoEncoderSource::DirectX(surface), timestamp)))?;
+        self.send_frame_message(Some((VideoEncoderSource::DirectX(surface), timestamp)))?;
 
         if self.error_notify.load(atomic::Ordering::Relaxed)
             && let Some(t) = self.transcode_thread.take()
@@ -1290,7 +1342,7 @@ impl VideoEncoder {
             self.build_padded_surface(frame)?
         };
 
-        self.frame_sender.send(Some((VideoEncoderSource::DirectX(surface), video_ts)))?;
+        self.send_frame_message(Some((VideoEncoderSource::DirectX(surface), video_ts)))?;
 
         // Audio timestamp from running sample count
         let frames_in_buf = (audio_buffer.len() as u32) / self.audio_block_align;
@@ -1311,6 +1363,10 @@ impl VideoEncoder {
         Ok(())
     }
 
+    fn send_frame_message(&self, message: FrameMessage) -> Result<(), mpsc::SendError<FrameMessage>> {
+        self.frame_sender.send(message, || self.transcode_thread.as_ref().is_some_and(|thread| !thread.is_finished()))
+    }
+
     /// Sends a raw frame buffer (owned inside). Returns immediately.
     /// Windows expects BGRA and bottom-to-top layout for this path.
     #[inline]
@@ -1328,7 +1384,7 @@ impl VideoEncoder {
             }
         };
 
-        self.frame_sender.send(Some((VideoEncoderSource::Buffer(buffer.to_vec()), timestamp)))?;
+        self.send_frame_message(Some((VideoEncoderSource::Buffer(buffer.to_vec()), timestamp)))?;
 
         if self.error_notify.load(atomic::Ordering::Relaxed)
             && let Some(t) = self.transcode_thread.take()
@@ -1372,13 +1428,13 @@ impl VideoEncoder {
     #[inline]
     pub fn finish(mut self) -> Result<(), VideoEncoderError> {
         // 1) Signal EOS on both streams.
-        let _ = self.frame_sender.send(None);
+        let _ = self.send_frame_message(None);
         let _ = self.audio_sender.send(None);
 
         // 2) **Close the channels** so any further recv() returns Err immediately. We replace the fields
         //    with dummy senders and drop the originals now.
         {
-            let (dummy_tx_v, _dummy_rx_v) = mpsc::channel::<Option<(VideoEncoderSource, TimeSpan)>>();
+            let (dummy_tx_v, _dummy_rx_v) = FrameSender::channel(None);
             let (dummy_tx_a, _dummy_rx_a) = mpsc::channel::<Option<(AudioEncoderSource, TimeSpan)>>();
 
             let old_v = std::mem::replace(&mut self.frame_sender, dummy_tx_v);
@@ -1404,11 +1460,11 @@ impl Drop for VideoEncoder {
     #[inline]
     fn drop(&mut self) {
         // Try to signal EOS, then **close** the channels before waiting.
-        let _ = self.frame_sender.send(None);
+        let _ = self.send_frame_message(None);
         let _ = self.audio_sender.send(None);
 
         // Close channels early in Drop too (same trick as in finish()).
-        let (dummy_tx_v, _dummy_rx_v) = mpsc::channel::<Option<(VideoEncoderSource, TimeSpan)>>();
+        let (dummy_tx_v, _dummy_rx_v) = FrameSender::channel(None);
         let (dummy_tx_a, _dummy_rx_a) = mpsc::channel::<Option<(AudioEncoderSource, TimeSpan)>>();
 
         let old_v = std::mem::replace(&mut self.frame_sender, dummy_tx_v);

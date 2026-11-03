@@ -1,6 +1,7 @@
 use crate::State;
 use crate::capture;
 use crate::gif::GifTask;
+use crate::subtitle::{Position, Size, SubtitleTask};
 use crate::transcript::TranscribeTask;
 use crate::video::CompressTask;
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ const THROTTLE: Duration = Duration::from_millis(100);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(3);
 const PART_SUFFIX: &str = ".part";
 const PART_EXTS: [&str; 3] = ["gif", "mp4", "srt"];
+const HISTORY_LIMIT: usize = 50;
 
 pub trait Task: Send {
     fn kind(&self) -> &'static str;
@@ -84,17 +86,59 @@ struct QueueEnded {
     error: Option<String>,
 }
 
+#[derive(Serialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryState {
+    Done,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Serialize, Clone)]
+pub struct HistoryItem {
+    id: u64,
+    kind: &'static str,
+    name: String,
+    source: Option<String>,
+    output: Option<String>,
+    state: HistoryState,
+    error: Option<String>,
+    retryable: bool,
+    #[serde(skip)]
+    retry: Option<TaskSpec>,
+}
+
 #[derive(Clone)]
 struct Entry {
     id: u64,
     kind: &'static str,
     name: String,
     source: Option<String>,
+    retry: Option<TaskSpec>,
     progress: Arc<Progress>,
     cancel: Arc<AtomicBool>,
 }
 
 impl Entry {
+    fn ended(&self, result: &Result<Option<PathBuf>, String>) -> HistoryItem {
+        let (state, output, error) = match result {
+            Ok(output) => (HistoryState::Done, output.as_ref().map(|path| path.display().to_string()), None),
+            Err(e) if e == CANCELLED => (HistoryState::Cancelled, None, None),
+            Err(e) => (HistoryState::Failed, None, Some(e.clone())),
+        };
+        HistoryItem {
+            id: self.id,
+            kind: self.kind,
+            name: self.name.clone(),
+            source: self.source.clone(),
+            output,
+            state,
+            error,
+            retryable: self.retry.is_some(),
+            retry: self.retry.clone(),
+        }
+    }
+
     fn view(&self, state: ItemState) -> QueueItem {
         QueueItem {
             id: self.id,
@@ -117,8 +161,16 @@ struct Item {
 struct Items {
     waiting: VecDeque<Item>,
     running: Option<Entry>,
+    history: VecDeque<HistoryItem>,
     next_id: u64,
     closed: bool,
+}
+
+impl Items {
+    fn record(&mut self, item: HistoryItem) {
+        self.history.push_front(item);
+        self.history.truncate(HISTORY_LIMIT);
+    }
 }
 
 #[derive(Default)]
@@ -128,7 +180,7 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn add(&self, app: &AppHandle, task: Box<dyn Task>) -> u64 {
+    pub fn add(&self, app: &AppHandle, task: Box<dyn Task>, retry: Option<TaskSpec>) -> u64 {
         let id = {
             let mut items = self.items.lock().unwrap();
             items.next_id += 1;
@@ -138,6 +190,7 @@ impl Queue {
                 kind: task.kind(),
                 name: task.name(),
                 source: task.source().map(|path| path.display().to_string()),
+                retry,
                 progress: Arc::new(Progress::new(app)),
                 cancel: Arc::new(AtomicBool::new(false)),
             };
@@ -155,9 +208,42 @@ impl Queue {
         running.chain(items.waiting.iter().map(|item| item.entry.view(ItemState::Waiting))).collect()
     }
 
+    pub fn has(&self, kind: &str, source: &Path) -> bool {
+        let source = source.display().to_string();
+        self.list().iter().any(|item| item.kind == kind && item.source.as_deref() == Some(source.as_str()))
+    }
+
+    pub fn history(&self) -> Vec<HistoryItem> {
+        self.items.lock().unwrap().history.iter().cloned().collect()
+    }
+
+    fn history_clear(&self) {
+        self.items.lock().unwrap().history.clear();
+    }
+
+    fn retry_spec(&self, id: u64) -> Option<TaskSpec> {
+        let items = self.items.lock().unwrap();
+        items.history.iter().find(|item| item.id == id).and_then(|item| item.retry.clone())
+    }
+
+    fn history_remove(&self, id: u64) {
+        self.items.lock().unwrap().history.retain(|item| item.id != id);
+    }
+
+    fn record(&self, item: HistoryItem) {
+        self.items.lock().unwrap().record(item);
+    }
+
     fn cancel(&self, id: Option<u64>) {
         let mut items = self.items.lock().unwrap();
-        items.waiting.retain(|item| id.is_some_and(|id| item.entry.id != id));
+        for item in std::mem::take(&mut items.waiting) {
+            if id.is_none_or(|id| item.entry.id == id) {
+                let ended = item.entry.ended(&Err(CANCELLED.into()));
+                items.record(ended);
+            } else {
+                items.waiting.push_back(item);
+            }
+        }
         if let Some(running) = items.running.as_ref().filter(|entry| id.is_none_or(|id| entry.id == id)) {
             running.cancel.store(true, Ordering::Relaxed);
         }
@@ -187,23 +273,24 @@ fn emit(app: &AppHandle) {
     let _ = app.emit_to("main", "queue", app.state::<State>().queue.list());
 }
 
-fn report(app: &AppHandle, entry: &Entry, result: Result<Option<PathBuf>, String>) {
-    let (output, error) = match result {
-        Err(e) if e == CANCELLED => return,
-        Ok(output) => (output.map(|path| path.display().to_string()), None),
-        Err(e) => (None, Some(e)),
-    };
+fn emit_history(app: &AppHandle) {
+    let _ = app.emit_to("main", "queue-history", app.state::<State>().queue.history());
+}
+
+fn report(app: &AppHandle, ended: HistoryItem) {
+    if ended.state == HistoryState::Cancelled {
+        return;
+    }
+    let HistoryItem { id, kind, name, source, output, error, .. } = ended;
     if output.is_some() {
         let _ = app.emit_to("main", "gallery-changed", ());
     }
     let visible = app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false));
     if visible {
-        let ended = QueueEnded { id: entry.id, kind: entry.kind, name: entry.name.clone(), source: entry.source.clone(), output, error };
-        let _ = app.emit_to("main", "queue-ended", ended);
+        let _ = app.emit_to("main", "queue-ended", QueueEnded { id, kind, name, source, output, error });
         return;
     }
     let vi = app.state::<State>().cfg.read().unwrap().language == "vi";
-    let name = &entry.name;
     let msg = match (error, vi) {
         (None, true) => format!("Đã xong: {name}"),
         (None, false) => format!("Finished: {name}"),
@@ -257,9 +344,13 @@ pub fn spawn(app: AppHandle) {
         while let Some(item) = app.state::<State>().queue.next() {
             emit(&app);
             let result = item.task.run(&item.entry.progress, &item.entry.cancel);
-            app.state::<State>().queue.finish();
+            let ended = item.entry.ended(&result);
+            let queue = &app.state::<State>().queue;
+            queue.record(ended.clone());
+            queue.finish();
             emit(&app);
-            report(&app, &item.entry, result);
+            emit_history(&app);
+            report(&app, ended);
         }
     });
 }
@@ -276,12 +367,13 @@ pub fn shutdown(app: &AppHandle) {
     let _ = queue.wake.wait_timeout_while(items, SHUTDOWN_WAIT, |items| items.running.is_some());
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskSpec {
     Gif { path: String, start_ms: u64, end_ms: Option<u64>, width: Option<u32>, fps: u32 },
     Compress { path: String, quality: String, height: Option<u32> },
     Transcribe { path: String },
+    Subtitle { path: String, position: Position, size: Size },
 }
 
 impl TaskSpec {
@@ -292,15 +384,41 @@ impl TaskSpec {
             }
             TaskSpec::Compress { path, quality, height } => Box::new(CompressTask::validated(app, &path, &quality, height)?),
             TaskSpec::Transcribe { path } => Box::new(TranscribeTask::validated(app, &path)?),
+            TaskSpec::Subtitle { path, position, size } => Box::new(SubtitleTask::validated(app, &path, position, size)?),
         })
     }
 }
 
 #[tauri::command]
 pub async fn queue_add(app: AppHandle, spec: TaskSpec) -> Result<u64, String> {
+    let retry = spec.clone();
     let handle = app.clone();
     let task = tauri::async_runtime::spawn_blocking(move || spec.into_task(&handle)).await.map_err(|e| e.to_string())??;
-    Ok(app.state::<State>().queue.add(&app, task))
+    Ok(app.state::<State>().queue.add(&app, task, Some(retry)))
+}
+
+#[tauri::command]
+pub fn queue_history(state: tauri::State<State>) -> Vec<HistoryItem> {
+    state.queue.history()
+}
+
+#[tauri::command]
+pub fn queue_history_clear(app: AppHandle) {
+    app.state::<State>().queue.history_clear();
+    emit_history(&app);
+}
+
+#[tauri::command]
+pub async fn queue_retry(app: AppHandle, id: u64) -> Result<u64, String> {
+    let spec = app.state::<State>().queue.retry_spec(id).ok_or("nothing to retry")?;
+    let retry = spec.clone();
+    let handle = app.clone();
+    let task = tauri::async_runtime::spawn_blocking(move || spec.into_task(&handle)).await.map_err(|e| e.to_string())??;
+    let queue = &app.state::<State>().queue;
+    queue.history_remove(id);
+    let new_id = queue.add(&app, task, Some(retry));
+    emit_history(&app);
+    Ok(new_id)
 }
 
 #[tauri::command]
@@ -312,10 +430,12 @@ pub fn queue_list(state: tauri::State<State>) -> Vec<QueueItem> {
 pub fn queue_cancel(app: AppHandle, id: u64) {
     app.state::<State>().queue.cancel(Some(id));
     emit(&app);
+    emit_history(&app);
 }
 
 #[tauri::command]
 pub fn queue_cancel_all(app: AppHandle) {
     app.state::<State>().queue.cancel(None);
     emit(&app);
+    emit_history(&app);
 }
