@@ -2,6 +2,11 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.11.1] - 2026-11-03
+
+### Fixed
+- Export with subtitles no longer gets stuck partway through (for example at 4%) on longer videos. Cancel now also stops an export that is in progress.
+
 ## [1.11.0] - 2026-11-03
 
 ### Added
