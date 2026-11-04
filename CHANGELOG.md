@@ -2,6 +2,11 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.11.2] - 2026-11-04
+
+### Fixed
+- Long file names no longer break the notification toasts in the settings window: long titles and descriptions are now cut to a few lines.
+
 ## [1.11.1] - 2026-11-03
 
 ### Fixed
