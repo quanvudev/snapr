@@ -4,6 +4,7 @@ version = "1.11.3"
 description = "Snapr: Windows tray screenshot and screen recording app"
 authors = ["Jun <vhquan9998@gmail.com>"]
 edition = "2024"
+license = "MIT"
 homepage = "https://github.com/quanvudev/snapr"
 repository = "https://github.com/quanvudev/snapr"
 

@@ -1,6 +1,7 @@
 {
   "name": "snapr-v2",
   "private": true,
+  "license": "MIT",
   "description": "Snapr: Windows tray screenshot and screen recording app",
   "author": "Jun <vhquan9998@gmail.com> (https://github.com/quanvudev)",
   "homepage": "https://github.com/quanvudev/snapr",
