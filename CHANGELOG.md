@@ -2,6 +2,18 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.12.0] - 2026-11-05
+
+### Added
+- Translate subtitles into 38 languages on your computer with the optional HY-MT1.5 model (about 1.4 GB, Settings → AI models). Vietnamese videos go to English and English videos to Vietnamese by default, and you can pick any other target from the gallery (right-click → Translate subtitles…) or the transcript pane. The model's licence (Tencent HY Community License) is shown and must be accepted before the first download; it does not apply in the EU, the UK or South Korea.
+- Without the translation model, videos that are not in English can still get English subtitles from Whisper.
+- Each translation is its own subtitle track: switch between the original and the translations in the transcript pane, edit any line, and choose the track when exporting a video with subtitles.
+- The Original track now shows the video's language, and gallery tiles show a badge for each subtitle language a video has.
+- Recordings can be translated automatically after they are transcribed (Settings → Recording → Also translate subtitles).
+- Redact tool in Draw capture (X): draw black or pixelated boxes over anything you want to hide. Press Detect (D) to cover email addresses, phone numbers, card numbers, IP addresses and secrets such as API keys and tokens in one go, then delete any box you don't want or undo the whole batch.
+- Optional automatic redaction of full-screen and window captures (Settings → Capture → Redaction): sensitive text is covered before the screenshot is saved, copied or previewed, and the original is not kept. It is off by default.
+- Redaction settings: default style (black or pixelate), which kinds of information to look for, your own patterns (regular expressions), and the text recognition engine, Windows OCR (fast, the default) or PaddleOCR (more accurate, slower).
+
 ## [1.11.3] - 2026-11-05
 
 ### Fixed
