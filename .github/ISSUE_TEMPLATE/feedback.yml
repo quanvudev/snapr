@@ -1,0 +1,16 @@
+name: Feedback
+description: Share what you like, what feels awkward or what confused you
+labels: [feedback]
+body:
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your feedback
+      description: Anything about using Snapr. There are no wrong answers.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Snapr version
+      description: Settings → About (optional)

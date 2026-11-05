@@ -1,0 +1,54 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Press Win+Shift+3
+        2. Drag across two monitors
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Snapr version
+      description: Settings → About
+      placeholder: 1.11.3
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed with
+      options:
+        - Installer
+        - Scoop
+        - Portable exe
+        - Built from source
+  - type: textarea
+    id: setup
+    attributes:
+      label: Display setup
+      description: Number of monitors, their resolutions and scaling, if the bug is about capturing or recording.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or anything else

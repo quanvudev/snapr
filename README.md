@@ -161,6 +161,13 @@ A release build signs its update artifacts, so it needs `TAURI_SIGNING_PRIVATE_K
 
 Built with [Tauri 2](https://tauri.app), Rust, React 19, TypeScript, Tailwind CSS and shadcn/ui. See [CLAUDE.md](CLAUDE.md) for an overview of the architecture.
 
+## Contributing
+
+Feedback, ideas and pull requests are welcome.
+
+- Found a bug or have an idea? [Open an issue](https://github.com/quanvudev/snapr/issues/new/choose): there are templates for bug reports, feature requests and general feedback.
+- Want to contribute code? Read [CONTRIBUTING.md](CONTRIBUTING.md). Every change goes through a pull request to `master`.
+
 ## License
 
 [MIT](LICENSE)
