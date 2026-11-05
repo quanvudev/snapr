@@ -19,6 +19,7 @@ mod pin;
 mod queue;
 mod recorder;
 mod recording;
+mod redact;
 mod ring;
 mod settings;
 mod snap;
@@ -27,6 +28,7 @@ mod toast;
 mod toolbar;
 mod tray;
 mod transcript;
+mod translate;
 mod update;
 mod video;
 mod whisper;
@@ -58,6 +60,7 @@ enum Action {
     RecordFailed(String),
     CancelCountdown,
     RecordPick(config::RecordMode),
+    Redactions { token: u64, rects: Vec<ocr::Bounds> },
 }
 
 pub struct State {
@@ -70,6 +73,7 @@ pub struct State {
     recording: Mutex<Option<Recorder>>,
     download: Mutex<Option<paddle::Download>>,
     whisper_download: Mutex<Option<whisper::Download>>,
+    translate_download: Mutex<Option<translate::Download>>,
     counting: AtomicBool,
     discard: AtomicBool,
     update: Mutex<update::Updater>,
@@ -113,6 +117,7 @@ pub fn run() {
                 recording: Mutex::new(None),
                 download: Mutex::new(None),
                 whisper_download: Mutex::new(None),
+                translate_download: Mutex::new(None),
                 counting: AtomicBool::new(false),
                 discard: AtomicBool::new(false),
                 update: Mutex::new(update::Updater::default()),
@@ -189,8 +194,14 @@ pub fn run() {
             paddle::paddle_delete,
             whisper::whisper_status,
             whisper::whisper_download,
+            redact::redact_validate,
+            translate::translate_status,
+            translate::translate_download,
+            translate::translate_cancel,
+            translate::translate_delete,
             whisper::whisper_cancel,
             whisper::whisper_delete,
+            transcript::transcript_detect,
             transcript::transcript_read,
             transcript::transcript_save,
             update::update_status,

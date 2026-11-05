@@ -1,3 +1,4 @@
+use crate::config::RedactStyle;
 use crate::overlay;
 use ab_glyph::{Font, FontVec, PxScale, ScaleFont, point};
 use image::RgbaImage;
@@ -33,6 +34,8 @@ const REGULAR: usize = 0;
 const BOLD: usize = 1;
 const ITALIC: usize = 2;
 const BOLD_ITALIC: usize = 3;
+const PIXEL_MIN: f32 = 16.0;
+const COVER_SLOP: f32 = 1.0;
 const FONT_FILES: [&str; 4] = ["segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"];
 
 static FONTS: [OnceLock<Option<FontVec>>; 4] = [const { OnceLock::new() }; 4];
@@ -102,6 +105,7 @@ impl Default for TextStyle {
 pub struct Style {
     pub stroke: StrokeStyle,
     pub text: TextStyle,
+    pub redact: RedactStyle,
 }
 
 impl Style {
@@ -121,7 +125,7 @@ fn step(values: &[f32], current: f32, delta: isize) -> f32 {
 fn constrain(tool: Tool, from: Point, to: Point) -> Point {
     let (dx, dy) = (to.x - from.x, to.y - from.y);
     match tool {
-        Tool::Rect | Tool::Ellipse => {
+        Tool::Rect | Tool::Ellipse | Tool::Redact => {
             let side = dx.abs().max(dy.abs());
             Point::from_xy(from.x + side * dx.signum(), from.y + side * dy.signum())
         }
@@ -235,10 +239,12 @@ pub enum Tool {
     Ellipse,
     Arrow,
     Text,
+    Redact,
 }
 
 #[derive(Clone)]
 enum Shape {
+    Redact(Point, Point, RedactStyle),
     Rect(Point, Point, StrokeStyle),
     Ellipse(Point, Point, StrokeStyle),
     Arrow(Point, Point, StrokeStyle),
@@ -279,18 +285,24 @@ fn text_bounds(at: Point, lines: &[String], style: &TextStyle, scale: f32) -> Op
 }
 
 impl Shape {
-    fn drawn(tool: Tool, from: Point, to: Point, style: StrokeStyle) -> Option<Self> {
+    fn drawn(tool: Tool, from: Point, to: Point, style: &Style) -> Option<Self> {
         match tool {
-            Tool::Rect => Some(Shape::Rect(from, to, style)),
-            Tool::Ellipse => Some(Shape::Ellipse(from, to, style)),
-            Tool::Arrow => Some(Shape::Arrow(from, to, style)),
+            Tool::Rect => Some(Shape::Rect(from, to, style.stroke)),
+            Tool::Ellipse => Some(Shape::Ellipse(from, to, style.stroke)),
+            Tool::Arrow => Some(Shape::Arrow(from, to, style.stroke)),
+            Tool::Redact => Some(Shape::Redact(from, to, style.redact)),
             Tool::Text => None,
         }
     }
 
-    fn render(&self, pixmap: &mut Pixmap, scale: f32) {
+    fn render(&self, pixmap: &mut Pixmap, scale: f32, background: &[u8]) {
         let pen = |style: &StrokeStyle| (paint(style.colour, u8::MAX), Stroke { width: style.width * scale, ..Stroke::default() });
         match self {
+            Shape::Redact(a, b, style) => {
+                if let Some(r) = span(*a, *b) {
+                    redact(pixmap, background, r, *style);
+                }
+            }
             Shape::Rect(a, b, style) => {
                 let (paint, stroke) = pen(style);
                 if let Some(r) = span(*a, *b) {
@@ -321,6 +333,9 @@ impl Shape {
     fn hit(&self, p: Point, scale: f32) -> bool {
         let reach = |style: &StrokeStyle| (style.width / 2.0 + HIT_SLOP) * scale;
         match self {
+            Shape::Redact(a, b, _) => {
+                span(*a, *b).is_some_and(|r| p.x >= r.left() && p.x <= r.right() && p.y >= r.top() && p.y <= r.bottom())
+            }
             Shape::Rect(a, b, style) => span(*a, *b).is_some_and(|r| {
                 (style.fill && p.x >= r.left() && p.x <= r.right() && p.y >= r.top() && p.y <= r.bottom())
                     || outline_distance(p, r) <= reach(style)
@@ -344,6 +359,7 @@ impl Shape {
 
     fn bounds(&self, scale: f32) -> Option<Rect> {
         match self {
+            Shape::Redact(a, b, _) => span(*a, *b),
             Shape::Rect(a, b, style) | Shape::Ellipse(a, b, style) | Shape::Arrow(a, b, style) => {
                 let half = style.width * scale / 2.0;
                 span(*a, *b)?.outset(half, half)
@@ -355,7 +371,7 @@ impl Shape {
     fn translate(&mut self, dx: f32, dy: f32) {
         let shift = |p: &mut Point| *p = Point::from_xy(p.x + dx, p.y + dy);
         match self {
-            Shape::Rect(a, b, _) | Shape::Ellipse(a, b, _) | Shape::Arrow(a, b, _) => {
+            Shape::Rect(a, b, _) | Shape::Ellipse(a, b, _) | Shape::Arrow(a, b, _) | Shape::Redact(a, b, _) => {
                 shift(a);
                 shift(b);
             }
@@ -369,6 +385,7 @@ impl Shape {
             Shape::Ellipse(..) => Tool::Ellipse,
             Shape::Arrow(..) => Tool::Arrow,
             Shape::Text { .. } => Tool::Text,
+            Shape::Redact(..) => Tool::Redact,
         }
     }
 
@@ -376,6 +393,7 @@ impl Shape {
         match self {
             Shape::Rect(.., s) | Shape::Ellipse(.., s) | Shape::Arrow(.., s) => *s = style.stroke,
             Shape::Text { style: s, .. } => *s = style.text,
+            Shape::Redact(.., s) => *s = style.redact,
         }
     }
 
@@ -383,9 +401,73 @@ impl Shape {
         match self {
             Shape::Rect(.., s) | Shape::Ellipse(.., s) | Shape::Arrow(.., s) => style.stroke = *s,
             Shape::Text { style: s, .. } => style.text = *s,
+            Shape::Redact(.., s) => style.redact = *s,
         }
         style
     }
+}
+
+fn redact(pixmap: &mut Pixmap, background: &[u8], r: Rect, style: RedactStyle) {
+    let (pw, ph) = (pixmap.width() as i32, pixmap.height() as i32);
+    let x0 = (r.left().floor() as i32).clamp(0, pw);
+    let y0 = (r.top().floor() as i32).clamp(0, ph);
+    let x1 = (r.right().ceil() as i32).clamp(0, pw);
+    let y1 = (r.bottom().ceil() as i32).clamp(0, ph);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let block = match style {
+        RedactStyle::Black => (x1 - x0).max(y1 - y0),
+        RedactStyle::Pixelate => PIXEL_MIN.max(r.width().min(r.height()) / 2.0).round() as i32,
+    }
+    .max(1) as usize;
+    let stride = pw as usize;
+    let pixels = pixmap.pixels_mut();
+    for by in (y0..y1).step_by(block) {
+        for bx in (x0..x1).step_by(block) {
+            let (ex, ey) = ((bx + block as i32).min(x1), (by + block as i32).min(y1));
+            let rgb = match style {
+                RedactStyle::Black => [0, 0, 0],
+                RedactStyle::Pixelate => average(background, stride, (bx, by, ex, ey)),
+            };
+            let Some(colour) = PremultipliedColorU8::from_rgba(rgb[0], rgb[1], rgb[2], u8::MAX) else { continue };
+            for y in by..ey {
+                let row = y as usize * stride;
+                pixels[row + bx as usize..row + ex as usize].fill(colour);
+            }
+        }
+    }
+}
+
+pub fn redact_image(img: RgbaImage, rects: &[(f32, f32, f32, f32)], style: RedactStyle) -> RgbaImage {
+    let (w, h) = img.dimensions();
+    let Some(size) = IntSize::from_wh(w, h).filter(|_| !rects.is_empty()) else { return img };
+    let background = img.into_raw();
+    let Some(mut pixmap) = Pixmap::from_vec(background.clone(), size) else {
+        return RgbaImage::from_raw(w, h, background).unwrap_or_default();
+    };
+    for r in rects.iter().filter_map(|&(x, y, rw, rh)| Rect::from_xywh(x, y, rw, rh)) {
+        redact(&mut pixmap, &background, r, style);
+    }
+    RgbaImage::from_raw(w, h, pixmap.take()).unwrap_or_default()
+}
+
+fn average(background: &[u8], stride: usize, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> [u8; 3] {
+    let mut sum = [0u64; 3];
+    let mut n = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (y as usize * stride + x as usize) * 4;
+            if let Some(px) = background.get(i..i + 3) {
+                for (total, &v) in sum.iter_mut().zip(px) {
+                    *total += u64::from(v);
+                }
+                n += 1;
+            }
+        }
+    }
+    let n = n.max(1);
+    sum.map(|v| (v / n) as u8)
 }
 
 fn text_box(pixmap: &mut Pixmap, at: Point, lines: &[String], style: &TextStyle, scale: f32, caret: bool) {
@@ -497,6 +579,7 @@ impl Sketch {
         let (kind, mut style) = self.options();
         let before = (style.stroke, style.text);
         match kind {
+            Tool::Redact => return,
             Tool::Text => text(&mut style.text),
             _ => stroke(&mut style.stroke),
         }
@@ -549,6 +632,45 @@ impl Sketch {
 
     pub fn toggle_italic(&mut self) {
         self.restyle(|_| {}, |t| t.italic = !t.italic);
+    }
+
+    pub fn set_redact(&mut self, redact: RedactStyle) {
+        let (kind, mut style) = self.options();
+        if kind != Tool::Redact {
+            return;
+        }
+        if let Some(i) = self.selected
+            && style.redact != redact
+        {
+            self.snapshot();
+            style.redact = redact;
+            self.shapes[i].restyle(&style);
+            self.dirty = true;
+        }
+        style.redact = redact;
+        self.style = style;
+    }
+
+    pub fn redactions(&mut self, rects: &[(f32, f32, f32, f32)]) -> usize {
+        let covers = |shape: &Shape, r: Rect| match shape {
+            Shape::Redact(a, b, _) => span(*a, *b)
+                .and_then(|c| c.outset(COVER_SLOP, COVER_SLOP))
+                .is_some_and(|c| c.left() <= r.left() && c.top() <= r.top() && c.right() >= r.right() && c.bottom() >= r.bottom()),
+            _ => false,
+        };
+        let fresh: Vec<Shape> = rects
+            .iter()
+            .filter_map(|&(x, y, w, h)| Rect::from_xywh(x, y, w, h))
+            .filter(|&r| !self.shapes.iter().any(|shape| covers(shape, r)))
+            .map(|r| Shape::Redact(Point::from_xy(r.left(), r.top()), Point::from_xy(r.right(), r.bottom()), self.style.redact))
+            .collect();
+        let added = fresh.len();
+        if added > 0 {
+            self.snapshot();
+            self.shapes.extend(fresh);
+            self.dirty = true;
+        }
+        added
     }
 
     fn local(&self, (x, y): (i32, i32)) -> Point {
@@ -607,7 +729,7 @@ impl Sketch {
         self.drag_to(at, shift);
         if let Some(Drag::Draw { from, to }) = self.drag.take()
             && from.distance(to) >= MIN_DRAG
-            && let Some(shape) = Shape::drawn(self.tool, from, to, self.style.stroke)
+            && let Some(shape) = Shape::drawn(self.tool, from, to, &self.style)
         {
             self.push(shape);
         }
@@ -712,7 +834,7 @@ impl Sketch {
         }
         self.base.data_mut().copy_from_slice(&self.background);
         for shape in &self.shapes {
-            shape.render(&mut self.base, self.scale);
+            shape.render(&mut self.base, self.scale, &self.background);
         }
         self.dirty = false;
     }
@@ -721,9 +843,9 @@ impl Sketch {
         self.refresh();
         self.view.data_mut().copy_from_slice(self.base.data());
         if let Some(Drag::Draw { from, to }) = self.drag
-            && let Some(shape) = Shape::drawn(self.tool, from, to, self.style.stroke)
+            && let Some(shape) = Shape::drawn(self.tool, from, to, &self.style)
         {
-            shape.render(&mut self.view, self.scale);
+            shape.render(&mut self.view, self.scale, &self.background);
         }
         if let Some((at, lines)) = &self.text {
             text_box(&mut self.view, *at, lines, &self.style.text, self.scale, true);

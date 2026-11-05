@@ -5,7 +5,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/component
 import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions, TextResult } from "@/hooks/use-gallery";
-import { api, type GalleryItem } from "@/lib/api";
+import { api, type GalleryItem, type Track } from "@/lib/api";
 import { fileName, formatDuration, formatSize, isMp4 } from "@/lib/gallery";
 import { ItemMenu } from "./item-menu";
 import { TextPane } from "./text-pane";
@@ -26,6 +26,8 @@ type Props = {
   transcriptOpen: boolean;
   onToggleTranscript: () => void;
   onCloseTranscript: () => void;
+  transcriptTrack: Track;
+  onTranscriptTrack: (track: Track) => void;
   onStep: (delta: number) => void;
   onSelect: (item: GalleryItem) => void;
   origin: DOMRect | null;
@@ -50,6 +52,8 @@ export function Viewer(props: Props) {
     transcriptOpen,
     onToggleTranscript,
     onCloseTranscript,
+    transcriptTrack,
+    onTranscriptTrack,
     onStep,
     onSelect,
     origin,
@@ -190,10 +194,13 @@ export function Viewer(props: Props) {
         {text && <TextPane text={text} onClose={onCloseText} />}
         {transcriptOpen && (
           <TranscriptPane
-            path={item.path}
+            item={item}
             video={video}
+            track={transcriptTrack}
+            onTrack={onTranscriptTrack}
+            onTranslate={() => actions.openTranslate(item)}
             onClose={onCloseTranscript}
-            onExport={(ms, text) => actions.openSubtitle(item, ms, text)}
+            onExport={(ms, text) => actions.openSubtitle(item, ms, text, transcriptTrack)}
           />
         )}
       </div>

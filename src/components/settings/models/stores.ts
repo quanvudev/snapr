@@ -1,6 +1,7 @@
 import { useSettingsContext } from "@/components/settings-provider";
 import type { PaddleSize, WhisperModel } from "@/lib/api";
 import { PADDLE_SIZES, paddleLabels } from "./paddle-labels";
+import { HYMT_ID, HYMT_NAME } from "@/lib/hymt";
 import { mb, WHISPER_MODELS } from "./whisper-models";
 
 export const PADDLE_NAME = "PaddleOCR";
@@ -62,5 +63,23 @@ export function useWhisperStore(): ModelStore {
     download: (id) => whisper.download(id as WhisperModel),
     cancel: whisper.cancel,
     remove: (id) => whisper.remove(id as WhisperModel),
+  };
+}
+
+export function useTranslateStore(askLicense: () => void): ModelStore {
+  const { cfg, translator } = useSettingsContext();
+  const { status, progress, error } = translator;
+  return {
+    name: HYMT_NAME,
+    options: [{ id: HYMT_ID, label: HYMT_NAME, detail: status.bytes > 0 ? mb(status.bytes) : undefined }],
+    selected: HYMT_ID,
+    ready: status.ready ? [HYMT_ID] : [],
+    bytes: { [HYMT_ID]: status.bytes },
+    progress: progress && { id: HYMT_ID, done: progress.done, total: progress.total },
+    error: error ? { id: HYMT_ID, message: error } : null,
+    select: () => {},
+    download: () => (cfg.hymt_license_accepted ? translator.download() : askLicense()),
+    cancel: translator.cancel,
+    remove: () => translator.remove(),
   };
 }

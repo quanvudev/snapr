@@ -5,6 +5,7 @@ import { T } from "@/lib/i18n";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 import { usePaddle } from "./use-paddle";
 import { useUpdate } from "./use-update";
+import { useTranslate } from "./use-translate";
 import { useWhisper } from "./use-whisper";
 
 export type View = "splash" | "setup" | "settings";
@@ -81,6 +82,7 @@ export function useSettings() {
   }, []);
   const paddle = usePaddle(reloadOcr);
   const whisper = useWhisper();
+  const translator = useTranslate();
   const updater = useUpdate();
 
   const outputDir = cfg?.output_dir;
@@ -116,6 +118,9 @@ export function useSettings() {
       ) {
         whisper.download(next.whisper_model);
       }
+      if (!cfg?.hymt_license_accepted && next.hymt_license_accepted && !translator.status.ready && !translator.progress) {
+        translator.download();
+      }
     } catch {
       setFailed(true);
     }
@@ -150,6 +155,7 @@ export function useSettings() {
     windowsOcr,
     paddle,
     whisper,
+    translator,
     updater,
     textActive,
     rows,

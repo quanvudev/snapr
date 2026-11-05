@@ -152,8 +152,18 @@ pub fn det_params(size: PaddleSize) -> (f32, f32, f32) {
 }
 
 pub fn selected(app: &AppHandle, cfg: &Config) -> Option<PaddleModel> {
-    let size = cfg.paddle_model;
-    if cfg.ocr_engine != OcrEngine::Paddle || !ready(app, size) {
+    if cfg.ocr_engine != OcrEngine::Paddle {
+        return None;
+    }
+    ready_model(app, cfg.paddle_model)
+}
+
+pub fn for_redaction(app: &AppHandle, cfg: &Config) -> Option<PaddleModel> {
+    if cfg.redact_paddle() { ready_model(app, cfg.paddle_model) } else { selected(app, cfg) }
+}
+
+fn ready_model(app: &AppHandle, size: PaddleSize) -> Option<PaddleModel> {
+    if !ready(app, size) {
         return None;
     }
     let (det, rec, dict) = files(app, size);
@@ -161,7 +171,7 @@ pub fn selected(app: &AppHandle, cfg: &Config) -> Option<PaddleModel> {
 }
 
 pub fn unload_others(cfg: &Config) {
-    let keep = (cfg.ocr_engine == OcrEngine::Paddle).then_some(cfg.paddle_model);
+    let keep = (cfg.ocr_engine == OcrEngine::Paddle || cfg.redact_paddle()).then_some(cfg.paddle_model);
     for size in SIZES {
         if Some(size) != keep {
             crate::ocr::paddle_unload(Some(size));
@@ -300,6 +310,7 @@ pub fn paddle_cancel(state: tauri::State<State>) {
 #[tauri::command]
 pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSize) -> Result<(), String> {
     let whisper_busy = state.whisper_download.lock().unwrap().is_some();
+    let translate_busy = state.translate_download.lock().unwrap().is_some();
     let download = state.download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.size == size) {
         return Err("this size is downloading".into());
@@ -310,7 +321,7 @@ pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSiz
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
     };
-    crate::onnx::release(&app, whisper_busy || download.is_some());
+    crate::onnx::release(&app, whisper_busy || translate_busy || download.is_some());
     drop(download);
     crate::hotkeys::apply(&app);
     removed

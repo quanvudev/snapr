@@ -63,7 +63,7 @@ pub fn ensure(app: &AppHandle, fetch: &mut Fetch) -> Result<(), String> {
 }
 
 pub fn release(app: &AppHandle, busy: bool) {
-    if !busy && !paddle::installed(app) && !crate::whisper::installed(app) {
+    if !busy && !paddle::installed(app) && !crate::whisper::installed(app) && !crate::translate::installed(app) {
         let _ = fs::remove_file(runtime_path(app));
     }
 }

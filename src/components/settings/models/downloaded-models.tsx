@@ -21,7 +21,8 @@ import { mb } from "./whisper-models";
 
 type Target = { store: ModelStore; id: string };
 
-const rowName = (store: ModelStore, id: string) => `${store.name} · ${labelOf(store, id)}`;
+const rowName = (store: ModelStore, id: string) =>
+  labelOf(store, id) === store.name ? store.name : `${store.name} · ${labelOf(store, id)}`;
 
 export function DownloadedModels({ stores }: { stores: ModelStore[] }) {
   const { t } = useSettingsContext();

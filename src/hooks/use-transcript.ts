@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
-import { api, type QueueItem, type Segment } from "@/lib/api";
-import { MS_PER_SECOND, percent, taskError, transcribeSpec } from "@/lib/queue";
+import { api, type GalleryItem, type QueueItem, type Segment, type Track } from "@/lib/api";
+import { MS_PER_SECOND, percent, taskError, trackDetail, trackKind, trackSpec } from "@/lib/queue";
 
 export function activeSegment(segments: Segment[], ms: number) {
   let low = 0;
@@ -20,14 +20,21 @@ export function activeSegment(segments: Segment[], ms: number) {
   return found;
 }
 
-export function useTranscript(path: string, video: HTMLVideoElement | null) {
+const trackKey = (path: string, track: Track) => `${track}:${path}`;
+
+export function useTranscript(item: GalleryItem, track: Track, video: HTMLVideoElement | null) {
   const { t } = useSettingsContext();
   const strings = useRef(t);
   strings.current = t;
-  const [loaded, setLoaded] = useState<{ path: string; segments: Segment[] | null }>();
+  const path = item.path;
+  const key = trackKey(path, track);
+  const kind = trackKind(track);
+  const detail = trackDetail(track);
+  const [loaded, setLoaded] = useState<{ key: string; segments: Segment[] | null }>();
   const [job, setJob] = useState<QueueItem | null>(null);
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [active, setActive] = useState(-1);
+  const unknownLanguage = item.language == null;
 
   const report = useCallback(
     (e: unknown) =>
@@ -35,34 +42,45 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
     [],
   );
 
+  const clearError = useCallback(
+    () =>
+      setErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      }),
+    [key],
+  );
+
   const load = useCallback(() => {
     api
-      .transcriptRead(path)
-      .then((segments) => setLoaded({ path, segments }))
+      .transcriptRead(path, track)
+      .then((segments) => setLoaded({ key, segments }))
       .catch(report);
-  }, [path, report]);
+  }, [path, track, key, report]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    const find = (items: QueueItem[]) =>
-      items.find((item) => item.kind === "transcribe" && item.source === path) ?? null;
+    if (unknownLanguage) api.transcriptDetect(path).catch(() => {});
+  }, [path, unknownLanguage]);
+
+  useEffect(() => {
+    const matches = (i: { kind: string; source: string | null; detail: string | null }) =>
+      i.kind === kind && i.source === path && (detail === null || i.detail === detail);
+    const find = (items: QueueItem[]) => items.find(matches) ?? null;
     api.queueList().then((items) => setJob(find(items))).catch(report);
     const subs = [
       api.onQueue((items) => setJob(find(items))),
       api.onQueueEnded((ended) => {
-        if (ended.kind !== "transcribe" || ended.source !== path) return;
+        if (!matches(ended)) return;
         if (ended.error) {
           const message = taskError(strings.current, ended.error);
-          setErrors((prev) => new Map(prev).set(path, message));
+          setErrors((prev) => new Map(prev).set(key, message));
         } else {
-          setErrors((prev) => {
-            const next = new Map(prev);
-            next.delete(path);
-            return next;
-          });
+          clearError();
           load();
         }
       }),
@@ -70,9 +88,9 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
     return () => {
       subs.forEach((s) => s.then((f) => f()));
     };
-  }, [path, load, report]);
+  }, [path, kind, detail, key, load, clearError, report]);
 
-  const segments = loaded?.path === path ? loaded.segments : undefined;
+  const segments = loaded?.key === key ? loaded.segments : undefined;
 
   useEffect(() => {
     if (!video || !segments) return;
@@ -87,20 +105,16 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
   }, [video, segments]);
 
   const create = () => {
-    setErrors((prev) => {
-      const next = new Map(prev);
-      next.delete(path);
-      return next;
-    });
-    api.queueAdd(transcribeSpec(path)).catch(report);
+    clearError();
+    api.queueAdd(trackSpec(path, track)).catch(report);
   };
 
   const save = (index: number, text: string) => {
     if (!segments) return Promise.resolve();
     const next = segments.map((segment, i) => (i === index ? { ...segment, text } : segment));
     return api
-      .transcriptSave(path, next)
-      .then(() => setLoaded({ path, segments: next }))
+      .transcriptSave(path, track, next)
+      .then(() => setLoaded({ key, segments: next }))
       .catch(report);
   };
 
@@ -108,7 +122,7 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
     segments,
     active,
     running: job ? { waiting: job.state === "waiting", percent: percent(job.done, job.total) } : null,
-    error: errors.get(path) ?? null,
+    error: errors.get(key) ?? null,
     create,
     save,
     cancel: () => {
@@ -118,4 +132,18 @@ export function useTranscript(path: string, video: HTMLVideoElement | null) {
       if (video) video.currentTime = ms / MS_PER_SECOND;
     },
   };
+}
+
+export function useTranslationJobs(path: string) {
+  const [targets, setTargets] = useState<string[]>([]);
+  useEffect(() => {
+    const pick = (items: QueueItem[]) =>
+      setTargets(items.filter((i) => i.kind === "translate" && i.source === path && i.detail).map((i) => i.detail!));
+    api.queueList().then(pick).catch(() => {});
+    const sub = api.onQueue(pick);
+    return () => {
+      sub.then((f) => f());
+    };
+  }, [path]);
+  return targets;
 }

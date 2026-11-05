@@ -180,6 +180,43 @@ impl Default for Padding {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum RedactStyle {
+    #[default]
+    Black,
+    Pixelate,
+}
+
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Redact {
+    pub auto_capture: bool,
+    pub engine: String,
+    pub style: String,
+    pub email: bool,
+    pub phone: bool,
+    pub card: bool,
+    pub ipv4: bool,
+    pub secrets: bool,
+    pub patterns: Vec<String>,
+}
+
+impl Default for Redact {
+    fn default() -> Self {
+        Self {
+            auto_capture: false,
+            engine: "windows".into(),
+            style: "black".into(),
+            email: true,
+            phone: true,
+            card: true,
+            ipv4: true,
+            secrets: true,
+            patterns: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
@@ -213,11 +250,16 @@ pub struct Config {
     #[serde(default)]
     pub record_transcribe: bool,
     #[serde(default)]
+    pub record_translate: bool,
+    #[serde(default)]
+    pub hymt_license_accepted: bool,
+    #[serde(default)]
     pub whisper_model: WhisperModel,
     #[serde(default = "default_transcript_language")]
     pub transcript_language: String,
     pub update_check: bool,
     pub padding: Padding,
+    pub redact: Redact,
     pub hotkeys: Hotkeys,
     pub ring: Ring,
 }
@@ -305,10 +347,13 @@ impl Default for Config {
             ocr_engine: OcrEngine::Windows,
             paddle_model: PaddleSize::Small,
             record_transcribe: false,
+            record_translate: false,
+            hymt_license_accepted: false,
             whisper_model: WhisperModel::Small,
             transcript_language: default_transcript_language(),
             update_check: true,
             padding: Padding::default(),
+            redact: Redact::default(),
             hotkeys: Hotkeys::default(),
             ring: Ring::default(),
         }
@@ -353,6 +398,17 @@ impl Config {
 
     pub fn transcript_language(&self) -> &str {
         TRANSCRIPT_LANGUAGES.into_iter().find(|&l| l == self.transcript_language).unwrap_or(TRANSCRIPT_AUTO)
+    }
+
+    pub fn redact_paddle(&self) -> bool {
+        self.redact.engine == "paddle"
+    }
+
+    pub fn redact_style(&self) -> RedactStyle {
+        match self.redact.style.as_str() {
+            "pixelate" => RedactStyle::Pixelate,
+            _ => RedactStyle::Black,
+        }
     }
 
     pub fn quality(&self) -> Quality {

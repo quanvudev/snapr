@@ -1,4 +1,4 @@
-import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, TaskSpec } from "./api";
+import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, TaskSpec, Track } from "./api";
 import type { T } from "./i18n";
 
 export type Strings = (typeof T)["en"];
@@ -7,6 +7,7 @@ export const TASK_KINDS: Record<string, { label: keyof Strings }> = {
   gif: { label: "taskGif" },
   compress: { label: "taskCompress" },
   transcribe: { label: "taskTranscribe" },
+  translate: { label: "taskTranslate" },
   subtitle: { label: "taskSubtitle" },
 };
 
@@ -16,6 +17,10 @@ const TASK_ERRORS: Record<string, keyof Strings> = {
   TRANSCRIBING: "transcribing",
   NO_TRANSCRIPT: "noTranscript",
   NO_FONT: "noFont",
+  ALREADY_ENGLISH: "alreadyEnglish",
+  SAME_LANGUAGE: "sameLanguage",
+  UNSUPPORTED_LANGUAGE: "unsupportedLanguage",
+  LICENSE_REQUIRED: "licenseRequired",
 };
 
 export function taskError(t: Strings, error: unknown) {
@@ -26,6 +31,22 @@ export function taskError(t: Strings, error: unknown) {
 
 export function transcribeSpec(path: string): TaskSpec {
   return { kind: "transcribe", path };
+}
+
+export function translateSpec(path: string, target: string | null = null): TaskSpec {
+  return { kind: "translate", path, target };
+}
+
+export function trackSpec(path: string, track: Track): TaskSpec {
+  return track === "original" ? transcribeSpec(path) : translateSpec(path, track);
+}
+
+export function trackKind(track: Track) {
+  return track === "original" ? "transcribe" : "translate";
+}
+
+export function trackDetail(track: Track) {
+  return track === "original" ? null : track;
 }
 
 export type CompressChoice = { quality: Quality; height: CompressHeight };
@@ -152,8 +173,8 @@ export function saveSubtitlePreset(preset: SubtitlePreset) {
   } catch {}
 }
 
-export function subtitleSpec(path: string, preset: SubtitlePreset): TaskSpec {
-  return { kind: "subtitle", path, position: preset.position, size: preset.size };
+export function subtitleSpec(path: string, preset: SubtitlePreset, track: Track = "original"): TaskSpec {
+  return { kind: "subtitle", path, position: preset.position, size: preset.size, track };
 }
 
 export function percent(done: number, total: number) {

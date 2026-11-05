@@ -1,3 +1,4 @@
+use crate::config::RedactStyle;
 use crate::draw::{self, Style, Tool};
 use crate::overlay::{self, Rect};
 use ab_glyph::{Font, FontVec, GlyphId, OutlineCurve, Point as AbPoint};
@@ -52,6 +53,12 @@ const GLYPH_UNDO: char = '\u{E7A7}';
 const GLYPH_REDO: char = '\u{E7A6}';
 const GLYPH_COPY: char = '\u{E8C8}';
 const GLYPH_PIN: char = '\u{E718}';
+const GLYPH_REDACT: char = '\u{ED1A}';
+const GLYPH_DETECT: char = '\u{E721}';
+const PIXEL_CELLS: usize = 3;
+const PIXEL_SHADES: [u8; 2] = [0xff, 0x80];
+const BUSY_RADIUS: f32 = 3.0;
+const BUSY_INSET: f32 = 5.0;
 const RING_WIDTH: f32 = 2.5;
 const FILL_TINT: u8 = 0x90;
 const ROW_GAP: f32 = 4.0;
@@ -75,11 +82,12 @@ const COLOUR_NAMES: [(&str, &str); 8] = [
 const WIDTH_NAMES: [(&str, &str); 3] =
     [("Thin ([ ])", "Mảnh ([ ])"), ("Medium ([ ])", "Vừa ([ ])"), ("Thick ([ ])", "Dày ([ ])")];
 static ICON_FONT: OnceLock<Option<FontVec>> = OnceLock::new();
-const MAIN_ROW: [Slot; 13] = [
+const MAIN_ROW: [Slot; 14] = [
     Slot::Control(Button::Tool(Tool::Rect)),
     Slot::Control(Button::Tool(Tool::Ellipse)),
     Slot::Control(Button::Tool(Tool::Arrow)),
     Slot::Control(Button::Tool(Tool::Text)),
+    Slot::Control(Button::Tool(Tool::Redact)),
     Slot::Divider,
     Slot::Control(Button::Undo),
     Slot::Control(Button::Redo),
@@ -157,6 +165,9 @@ pub enum Button {
     Larger,
     Bold,
     Italic,
+    Black,
+    Pixelate,
+    Detect,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -195,6 +206,10 @@ impl Button {
             Button::Tool(Tool::Ellipse) => ("Ellipse (C)", "Hình elip (C)"),
             Button::Tool(Tool::Arrow) => ("Arrow (A)", "Mũi tên (A)"),
             Button::Tool(Tool::Text) => ("Text (T)", "Văn bản (T)"),
+            Button::Tool(Tool::Redact) => ("Redact (X)", "Che thông tin (X)"),
+            Button::Black => ("Black", "Tô đen"),
+            Button::Pixelate => ("Pixelate", "Làm mờ khối"),
+            Button::Detect => ("Detect sensitive info (D)", "Tìm thông tin nhạy cảm (D)"),
             Button::Undo => ("Undo (Ctrl+Z)", "Hoàn tác (Ctrl+Z)"),
             Button::Redo => ("Redo (Ctrl+Y)", "Làm lại (Ctrl+Y)"),
             Button::Pin => ("Pin (Ctrl+P)", "Ghim (Ctrl+P)"),
@@ -222,6 +237,8 @@ impl Button {
             Button::Tool(Tool::Ellipse) => Some((GLYPH_ELLIPSE, 0.0)),
             Button::Tool(Tool::Arrow) => Some((GLYPH_ARROW, ARROW_ANGLE)),
             Button::Tool(Tool::Text) => Some((GLYPH_TEXT, 0.0)),
+            Button::Tool(Tool::Redact) => Some((GLYPH_REDACT, 0.0)),
+            Button::Detect => Some((GLYPH_DETECT, 0.0)),
             Button::Undo => Some((GLYPH_UNDO, 0.0)),
             Button::Redo => Some((GLYPH_REDO, 0.0)),
             Button::Pin => Some((GLYPH_PIN, 0.0)),
@@ -237,7 +254,9 @@ impl Button {
             | Button::Colour
             | Button::FillColour
             | Button::Outline
-            | Button::Fill => None,
+            | Button::Fill
+            | Button::Black
+            | Button::Pixelate => None,
         }
     }
 
@@ -249,7 +268,10 @@ impl Button {
             Button::Fill => style.stroke.fill,
             Button::Bold => style.text.bold,
             Button::Italic => style.text.italic,
-            Button::Undo
+            Button::Black => style.redact == RedactStyle::Black,
+            Button::Pixelate => style.redact == RedactStyle::Pixelate,
+            Button::Detect
+            | Button::Undo
             | Button::Redo
             | Button::Pin
             | Button::Copy
@@ -277,6 +299,7 @@ pub fn shortcut(key: &str) -> Option<Tool> {
         "c" => Some(Tool::Ellipse),
         "a" => Some(Tool::Arrow),
         "t" => Some(Tool::Text),
+        "x" => Some(Tool::Redact),
         _ => None,
     }
 }
@@ -292,6 +315,14 @@ fn options_row(kind: Tool, fill: bool, palette: Option<Palette>) -> Vec<Slot> {
         return row;
     }
     let mut row = match kind {
+        Tool::Redact => {
+            return vec![
+                Slot::Control(Button::Black),
+                Slot::Control(Button::Pixelate),
+                Slot::Divider,
+                Slot::Control(Button::Detect),
+            ];
+        }
         Tool::Rect | Tool::Ellipse => {
             vec![Slot::Control(Button::Outline), Slot::Control(Button::Fill), Slot::Divider, Slot::Control(Button::Colour)]
         }
@@ -435,6 +466,22 @@ fn content(pixmap: &mut Pixmap, scale: f32, button: Button, centre: Point, alpha
             let line = (centre.x - size / 2.0, centre.y - thickness / 2.0, size, thickness);
             fill(pixmap, line, thickness / 2.0, rgb, alpha);
         }
+        Button::Black => {
+            let ring = SWATCH_RING * scale;
+            let outer = (square.0 - ring, square.1 - ring, size + ring * 2.0, size + ring * 2.0);
+            fill(pixmap, outer, radius + ring, rgb, alpha);
+            fill(pixmap, square, radius, [0, 0, 0], alpha);
+        }
+        Button::Pixelate => {
+            let cell = size / PIXEL_CELLS as f32;
+            for row in 0..PIXEL_CELLS {
+                for col in 0..PIXEL_CELLS {
+                    let shade = PIXEL_SHADES[(row + col) % PIXEL_SHADES.len()];
+                    let r = (square.0 + col as f32 * cell, square.1 + row as f32 * cell, cell, cell);
+                    fill(pixmap, r, 0.0, [shade; 3], alpha);
+                }
+            }
+        }
         _ => {
             if let Some(glyph) = button.glyph() {
                 icon(pixmap, glyph, centre, size, &draw::paint(rgb, alpha));
@@ -477,13 +524,14 @@ fn paint_row(pixmap: &mut Pixmap, slots: &[(Slot, Rect)], (w, h): (i32, i32), pa
     }
 }
 
-struct Scene<'a> {
-    tool: Tool,
-    kind: Tool,
-    style: &'a Style,
-    hover: Option<Button>,
-    enabled: &'a dyn Fn(Button) -> bool,
-    palette: Option<Palette>,
+pub struct Scene<'a> {
+    pub tool: Tool,
+    pub kind: Tool,
+    pub style: &'a Style,
+    pub hover: Option<Button>,
+    pub enabled: &'a dyn Fn(Button) -> bool,
+    pub palette: Option<Palette>,
+    pub busy: bool,
 }
 
 fn paint_slots(pixmap: &mut Pixmap, slots: &[(Slot, Rect)], pad: f32, scale: f32, scene: &Scene) {
@@ -508,7 +556,13 @@ fn paint_slots(pixmap: &mut Pixmap, slots: &[(Slot, Rect)], pad: f32, scale: f32
                 let centre = Point::from_xy(rect.0 + rect.2 / 2.0, rect.1 + rect.3 / 2.0);
                 size_label(pixmap, scale, centre, scene.style.text.size);
             }
-            Slot::Control(button) => paint_control(pixmap, scale, button, rect, state(button), scene.style, scene.kind),
+            Slot::Control(button) => {
+                paint_control(pixmap, scale, button, rect, state(button), scene.style, scene.kind);
+                if button == Button::Detect && scene.busy {
+                    let inset = BUSY_INSET * scale;
+                    circle(pixmap, Point::from_xy(rect.0 + rect.2 - inset, rect.1 + inset), BUSY_RADIUS * scale, ACCENT);
+                }
+            }
         }
     }
 }
@@ -549,7 +603,7 @@ pub struct Toolbar {
 impl Toolbar {
     pub fn place(selection: Rect, monitor: Rect, scale: f32, vi: bool) -> Option<Self> {
         let (main_slots, w) = layout(&MAIN_ROW, scale);
-        let kinds = [Tool::Rect, Tool::Ellipse, Tool::Arrow, Tool::Text];
+        let kinds = [Tool::Rect, Tool::Ellipse, Tool::Arrow, Tool::Text, Tool::Redact];
         let palettes = [None, Some(Palette::Stroke), Some(Palette::Fill)];
         let options_w = kinds
             .into_iter()
@@ -633,36 +687,35 @@ impl Toolbar {
             .map(|(_, r)| r)?;
         if self.tip.as_ref().is_none_or(|t| t.0 != button || t.1 != slot) {
             self.tip = tag(button.label(kind, self.vi), self.scale).map(|pixmap| {
-                let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
-                let (bx, _, bw, _) = slot;
-                let (mx, my, mw, mh) = self.monitor;
-                let gap = px(TIP_GAP, self.scale);
-                let (top, bottom) = self.block(kind, fill, palette);
-                let (below, above) = (bottom + gap, top - gap - h);
-                let y = match (self.down, below + h <= my + mh, above >= my) {
-                    (true, true, _) | (false, _, false) => below,
-                    _ => above,
-                };
-                let at = ((bx + bw / 2 - w / 2).min(mx + mw - w).max(mx), y.min(my + mh - h).max(my));
+                let at = self.tip_at(slot, (pixmap.width() as i32, pixmap.height() as i32), kind, fill, palette);
                 (button, slot, pixmap, at)
             });
         }
         self.tip.as_ref().map(|(_, _, pixmap, at)| (pixmap, *at))
     }
 
-    pub fn render(
-        &mut self,
-        tool: Tool,
-        kind: Tool,
-        style: &Style,
-        hover: Option<Button>,
-        palette: Option<Palette>,
-        enabled: &dyn Fn(Button) -> bool,
-    ) -> Vec<(&Pixmap, (i32, i32))> {
-        let scene = Scene { tool, kind, style, hover, enabled, palette };
+    pub fn anchor(&self, button: Button, size: (i32, i32), kind: Tool, fill: bool, palette: Option<Palette>) -> Option<(i32, i32)> {
+        let slot = self.slots(kind, fill, palette).into_iter().find(|&(slot, _)| slot.button() == Some(button))?.1;
+        Some(self.tip_at(slot, size, kind, fill, palette))
+    }
+
+    fn tip_at(&self, (bx, _, bw, _): Rect, (w, h): (i32, i32), kind: Tool, fill: bool, palette: Option<Palette>) -> (i32, i32) {
+        let (mx, my, mw, mh) = self.monitor;
+        let gap = px(TIP_GAP, self.scale);
+        let (top, bottom) = self.block(kind, fill, palette);
+        let (below, above) = (bottom + gap, top - gap - h);
+        let y = match (self.down, below + h <= my + mh, above >= my) {
+            (true, true, _) | (false, _, false) => below,
+            _ => above,
+        };
+        ((bx + bw / 2 - w / 2).min(mx + mw - w).max(mx), y.min(my + mh - h).max(my))
+    }
+
+    pub fn render(&mut self, scene: &Scene) -> Vec<(&Pixmap, (i32, i32))> {
+        let (kind, style, palette) = (scene.kind, scene.style, scene.palette);
         let pad = self.pad as f32;
         self.main_pixmap.data_mut().copy_from_slice(self.main_base.data());
-        paint_slots(&mut self.main_pixmap, &layout(&MAIN_ROW, self.scale).0, pad, self.scale, &scene);
+        paint_slots(&mut self.main_pixmap, &layout(&MAIN_ROW, self.scale).0, pad, self.scale, scene);
         let main_at = (self.main.0 - self.pad, self.main.1 - self.pad);
         let fill = style.stroke.fill;
         let Some(((ox, oy, ow, oh), slots)) = self.options(kind, fill, palette) else {
@@ -674,7 +727,7 @@ impl Toolbar {
             self.options_row = row;
         }
         self.options_pixmap.data_mut().copy_from_slice(self.options_base.data());
-        paint_slots(&mut self.options_pixmap, &slots, pad, self.scale, &scene);
+        paint_slots(&mut self.options_pixmap, &slots, pad, self.scale, scene);
         vec![(&self.main_pixmap, main_at), (&self.options_pixmap, (ox - self.pad, oy - self.pad))]
     }
 }

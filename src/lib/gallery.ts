@@ -1,4 +1,4 @@
-import type { GalleryItem } from "./api";
+import type { GalleryItem, Track } from "./api";
 
 export type Filter = "all" | "photo" | "video";
 export type Period = "day" | "month" | "year";
@@ -29,6 +29,25 @@ export function matches(item: GalleryItem, filter: Filter, query: string) {
 
 export function isMp4(item: GalleryItem) {
   return item.path.toLowerCase().endsWith(".mp4");
+}
+
+export function canWhisperTranslate(item: GalleryItem) {
+  return isMp4(item) && item.language != null && item.language !== "en";
+}
+
+export function canTranslate(item: GalleryItem, hymt: boolean) {
+  return hymt ? isMp4(item) && item.transcript && item.language != null : canWhisperTranslate(item);
+}
+
+export function subtitleCodes(item: GalleryItem) {
+  const codes = item.transcript ? [item.language ?? "cc"] : [];
+  return [...new Set([...codes, ...item.translations])];
+}
+
+export function itemTracks(item: GalleryItem, hymt: boolean): Track[] {
+  const tracks: Track[] = ["original", ...item.translations];
+  if (!hymt && canWhisperTranslate(item) && !item.translations.includes("en")) tracks.push("en");
+  return tracks;
 }
 
 export function isGif(item: GalleryItem) {

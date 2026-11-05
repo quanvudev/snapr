@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Captions, Check, Copy, Pencil, X } from "lucide-react";
+import { Captions, Check, Copy, Languages, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettingsContext } from "@/components/settings-provider";
-import { activeSegment, useTranscript } from "@/hooks/use-transcript";
-import { formatDuration } from "@/lib/gallery";
+import { activeSegment, useTranscript, useTranslationJobs } from "@/hooks/use-transcript";
+import type { GalleryItem, Track } from "@/lib/api";
+import { canTranslate, formatDuration, itemTracks } from "@/lib/gallery";
+import { languageName, trackName } from "@/lib/languages";
 import { MS_PER_SECOND } from "@/lib/queue";
 import { cn } from "@/lib/utils";
 
@@ -15,15 +18,33 @@ const FOLLOW_PAUSE_MS = 3000;
 const COPIED_MS = 1500;
 
 type Props = {
-  path: string;
+  item: GalleryItem;
+  track: Track;
+  onTrack: (track: Track) => void;
+  onTranslate: () => void;
   video: HTMLVideoElement | null;
   onClose: () => void;
   onExport: (ms: number, text: string) => void;
 };
 
-export function TranscriptPane({ path, video, onClose, onExport }: Props) {
-  const { t } = useSettingsContext();
-  const { segments, active, running, error, create, save, cancel, seek } = useTranscript(path, video);
+export function TranscriptPane({ item, track: chosen, onTrack, onTranslate, video, onClose, onExport }: Props) {
+  const { cfg, t, translator } = useSettingsContext();
+  const hymt = translator.status.ready;
+  const jobs = useTranslationJobs(item.path);
+  const [seen, setSeen] = useState<{ path: string; targets: string[] }>({ path: item.path, targets: [] });
+  const recent = seen.path === item.path ? seen.targets : [];
+  useEffect(() => {
+    if (jobs.length === 0) return;
+    setSeen((prev) => {
+      const base = prev.path === item.path ? prev.targets : [];
+      const next = [...new Set([...base, ...jobs])];
+      return next.length === base.length && prev.path === item.path ? prev : { path: item.path, targets: next };
+    });
+  }, [jobs, item.path]);
+  const tracks = [...new Set<Track>([...itemTracks(item, hymt), ...recent, ...jobs])];
+  const track = tracks.includes(chosen) ? chosen : "original";
+  const translatable = hymt && canTranslate(item, true);
+  const { segments, active, running, error, create, save, cancel, seek } = useTranscript(item, track, video);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -62,6 +83,11 @@ export function TranscriptPane({ path, video, onClose, onExport }: Props) {
     <aside className="flex w-80 shrink-0 flex-col rounded-lg border bg-muted/40">
       <div className="flex items-center gap-1 border-b p-2">
         <span className="flex-1 pl-1 text-sm font-medium">{t.transcript}</span>
+        {translatable && (
+          <Button variant="ghost" size="icon-sm" title={t.translateSubtitles} onClick={onTranslate}>
+            <Languages />
+          </Button>
+        )}
         <Button variant="ghost" size="icon-sm" title={t.copyAll} disabled={!all} onClick={copy}>
           {copied ? <Check /> : <Copy />}
         </Button>
@@ -72,6 +98,22 @@ export function TranscriptPane({ path, video, onClose, onExport }: Props) {
           <X />
         </Button>
       </div>
+      {tracks.length > 1 && (
+        <div className="border-b p-2">
+          <Select value={track} onValueChange={(v) => v && onTrack(v as Track)}>
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue>{(v: Track) => trackName(v, cfg.language, t.trackOriginal, item.language)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {tracks.map((tr) => (
+                <SelectItem key={tr} value={tr}>
+                  {trackName(tr, cfg.language, t.trackOriginal, item.language)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <ScrollArea className="min-h-0 flex-1">
         <div
           ref={list}
@@ -106,7 +148,11 @@ export function TranscriptPane({ path, video, onClose, onExport }: Props) {
           ) : segments === null ? (
             <div className="flex justify-center p-2">
               <Button size="sm" variant="outline" onClick={create}>
-                {t.transcriptCreate}
+                {track === "original"
+                  ? t.transcriptCreate
+                  : hymt
+                    ? t.translateIntoLanguage.replace("{language}", languageName(track, cfg.language))
+                    : t.translateToEnglish}
               </Button>
             </div>
           ) : segments.length === 0 ? (

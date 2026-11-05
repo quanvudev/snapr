@@ -191,7 +191,7 @@ const MODELS: [Model; MODEL_COUNT] = [
 
 const ALL: [WhisperModel; MODEL_COUNT] = [WhisperModel::Base, WhisperModel::Small, WhisperModel::Turbo];
 
-static IN_USE: Mutex<Option<WhisperModel>> = Mutex::new(None);
+static IN_USE: Mutex<Vec<WhisperModel>> = Mutex::new(Vec::new());
 
 pub struct Download {
     model: WhisperModel,
@@ -220,17 +220,20 @@ pub struct Status {
     downloading: Option<Progress>,
 }
 
-pub struct UseGuard;
+pub struct UseGuard(WhisperModel);
 
 impl Drop for UseGuard {
     fn drop(&mut self) {
-        *IN_USE.lock().unwrap() = None;
+        let mut in_use = IN_USE.lock().unwrap();
+        if let Some(index) = in_use.iter().position(|&m| m == self.0) {
+            in_use.remove(index);
+        }
     }
 }
 
 pub fn acquire(model: WhisperModel) -> UseGuard {
-    *IN_USE.lock().unwrap() = Some(model);
-    UseGuard
+    IN_USE.lock().unwrap().push(model);
+    UseGuard(model)
 }
 
 fn entry(model: WhisperModel) -> &'static Model {
@@ -350,17 +353,18 @@ pub fn whisper_cancel(state: tauri::State<State>) {
 #[tauri::command]
 pub fn whisper_delete(app: AppHandle, state: tauri::State<State>, model: WhisperModel) -> Result<(), String> {
     let paddle_busy = state.download.lock().unwrap().is_some();
+    let translate_busy = state.translate_download.lock().unwrap().is_some();
     let download = state.whisper_download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.model == model) {
         return Err("this model is downloading".into());
     }
-    if *IN_USE.lock().unwrap() == Some(model) {
+    if IN_USE.lock().unwrap().contains(&model) {
         return Err("this model is in use".into());
     }
     let removed = match fs::remove_dir_all(model_dir(&app, model)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
     };
-    crate::onnx::release(&app, paddle_busy || download.is_some());
+    crate::onnx::release(&app, paddle_busy || translate_busy || download.is_some());
     removed
 }

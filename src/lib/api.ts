@@ -17,6 +17,19 @@ export type OcrEngine = "windows" | "paddle";
 export type PaddleSize = "tiny" | "small" | "medium";
 export type WhisperModel = "base" | "small" | "turbo";
 export type TranscriptLanguage = "auto" | "vi" | "en";
+export type Track = "original" | (string & {});
+export type RedactStyle = "black" | "pixelate";
+export type Redact = {
+  auto_capture: boolean;
+  engine: "windows" | "paddle";
+  style: RedactStyle;
+  email: boolean;
+  phone: boolean;
+  card: boolean;
+  ipv4: boolean;
+  secrets: boolean;
+  patterns: string[];
+};
 export type Config = {
   output_dir: string;
   copy_to_clipboard: boolean;
@@ -26,6 +39,8 @@ export type Config = {
   record_compress: boolean;
   record_compress_height: number;
   record_transcribe: boolean;
+  record_translate: boolean;
+  hymt_license_accepted: boolean;
   whisper_model: WhisperModel;
   transcript_language: TranscriptLanguage;
   record_countdown: boolean;
@@ -38,6 +53,7 @@ export type Config = {
   paddle_model: PaddleSize;
   update_check: boolean;
   padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number; wallpaper: boolean };
+  redact: Redact;
   language: "vi" | "en";
   theme: Theme;
   hotkeys: Hotkeys;
@@ -51,11 +67,22 @@ export type PaddleDone = { size: PaddleSize; error: string | null };
 export type WhisperProgress = { model: WhisperModel; done: number; total: number };
 export type WhisperStatus = { ready: WhisperModel[]; bytes: Record<WhisperModel, number>; downloading: WhisperProgress | null };
 export type WhisperDone = { model: WhisperModel; error: string | null };
+export type TranslateProgress = { done: number; total: number };
+export type TranslateStatus = { ready: boolean; bytes: number; downloading: TranslateProgress | null };
+export type TranslateDone = { error: string | null };
 export type Segment = { start_ms: number; end_ms: number; text: string };
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
 export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
 export type InstalledApp = { name: string; path: string };
-export type GalleryItem = { path: string; date_ms: number; size: number; kind: "photo" | "video" | "other"; transcript: boolean };
+export type GalleryItem = {
+  path: string;
+  date_ms: number;
+  size: number;
+  kind: "photo" | "video" | "other";
+  transcript: boolean;
+  translations: string[];
+  language: string | null;
+};
 export type BulkFailure = { path: string; error: string };
 
 export type InputDevice = { id: string; name: string; default: boolean };
@@ -91,7 +118,8 @@ export type TaskSpec =
     }
   | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
   | { kind: "transcribe"; path: string }
-  | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize };
+  | { kind: "translate"; path: string; target?: string | null }
+  | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize; track: Track };
 
 export type CompressInfo = {
   width: number;
@@ -109,6 +137,7 @@ export type QueueItem = {
   done: number;
   total: number;
   source: string | null;
+  detail: string | null;
 };
 export type HistoryState = "done" | "failed" | "cancelled";
 export type HistoryItem = {
@@ -116,6 +145,7 @@ export type HistoryItem = {
   kind: string;
   name: string;
   source: string | null;
+  detail: string | null;
   output: string | null;
   state: HistoryState;
   error: string | null;
@@ -128,6 +158,7 @@ export type QueueEnded = {
   output: string | null;
   error: string | null;
   source: string | null;
+  detail: string | null;
 };
 
 export const api = {
@@ -178,8 +209,17 @@ export const api = {
   onWhisperProgress: (cb: (p: WhisperProgress) => void) =>
     listen<WhisperProgress>("whisper-progress", (e) => cb(e.payload)),
   onWhisperDone: (cb: (d: WhisperDone) => void) => listen<WhisperDone>("whisper-done", (e) => cb(e.payload)),
-  transcriptRead: (path: string) => invoke<Segment[] | null>("transcript_read", { path }),
-  transcriptSave: (path: string, segments: Segment[]) => invoke("transcript_save", { path, segments }),
+  translateStatus: () => invoke<TranslateStatus>("translate_status"),
+  translateDownload: () => invoke("translate_download"),
+  redactValidate: (pattern: string) => invoke("redact_validate", { pattern }),
+  translateCancel: () => invoke("translate_cancel"),
+  translateDelete: () => invoke("translate_delete"),
+  onTranslateProgress: (cb: (p: TranslateProgress) => void) =>
+    listen<TranslateProgress>("translate-progress", (e) => cb(e.payload)),
+  onTranslateDone: (cb: (d: TranslateDone) => void) => listen<TranslateDone>("translate-done", (e) => cb(e.payload)),
+  transcriptRead: (path: string, track: Track = "original") => invoke<Segment[] | null>("transcript_read", { path, track }),
+  transcriptSave: (path: string, track: Track, segments: Segment[]) => invoke("transcript_save", { path, track, segments }),
+  transcriptDetect: (path: string) => invoke<string | null>("transcript_detect", { path }),
   updateStatus: () => invoke<UpdateStatus>("update_status"),
   updateCheck: () => invoke("update_check"),
   updateInstall: () => invoke("update_install"),

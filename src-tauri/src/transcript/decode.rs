@@ -7,15 +7,17 @@ use ort::session::{Session, SessionInputValue};
 use ort::value::{DynValue, Tensor};
 use serde_json::Value;
 
-use super::Segment;
+use super::{ALREADY_ENGLISH, Segment};
 use super::mel::{Mel, N_FRAMES, N_SAMPLES, SAMPLE_RATE};
 use super::tokens::Tokens;
 use crate::queue::CANCELLED;
 
 const MAX_WINDOW_TOKENS: usize = 224;
+pub const WINDOW_SAMPLES: usize = N_SAMPLES;
 const TIME_PRECISION_MS: u64 = 20;
 const SAMPLES_PER_TIMESTAMP: usize = SAMPLE_RATE * TIME_PRECISION_MS as usize / 1000;
 const AUTO: &str = "auto";
+const ENGLISH: &str = "en";
 const INPUT_IDS: &str = "input_ids";
 const ENCODER_HIDDEN_STATES: &str = "encoder_hidden_states";
 const USE_CACHE_BRANCH: &str = "use_cache_branch";
@@ -30,6 +32,7 @@ struct Ids {
     start: i64,
     eos: i64,
     transcribe: i64,
+    translate: Option<i64>,
     timestamp_begin: i64,
     languages: HashMap<String, i64>,
     suppress: Vec<i64>,
@@ -73,6 +76,7 @@ impl Ids {
             start: int(json, "decoder_start_token_id")?,
             eos: int(json, "eos_token_id")?,
             transcribe: json["task_to_id"]["transcribe"].as_i64().ok_or("task_to_id missing")?,
+            translate: json["task_to_id"]["translate"].as_i64(),
             timestamp_begin: no_timestamps + 1,
             languages,
             suppress: ints(json, "suppress_tokens"),
@@ -82,6 +86,17 @@ impl Ids {
 
     fn language(&self, code: &str) -> Result<i64, String> {
         self.languages.get(&format!("<|{code}|>")).copied().ok_or_else(|| format!("unknown language {code}"))
+    }
+
+    fn code(&self, id: i64) -> Option<String> {
+        self.languages
+            .iter()
+            .find(|&(_, &v)| v == id)
+            .map(|(k, _)| k.trim_start_matches("<|").trim_end_matches("|>").to_owned())
+    }
+
+    fn task(&self, translate: bool) -> Result<i64, String> {
+        if translate { self.translate.ok_or_else(|| "model cannot translate".into()) } else { Ok(self.transcribe) }
     }
 
     fn is_timestamp(&self, id: i64) -> bool {
@@ -212,9 +227,9 @@ impl Model {
             .ok_or_else(|| "no language token".into())
     }
 
-    fn generate(&mut self, ids: &Ids, hidden: &DynValue, language: i64, cancel: &AtomicBool) -> Result<Vec<i64>, String> {
+    fn generate(&mut self, ids: &Ids, hidden: &DynValue, language: i64, task: i64, cancel: &AtomicBool) -> Result<Vec<i64>, String> {
         let mut sampled = Vec::new();
-        let (mut logits, mut cache) = self.step(&[ids.start, language, ids.transcribe], hidden, None)?;
+        let (mut logits, mut cache) = self.step(&[ids.start, language, task], hidden, None)?;
         while sampled.len() < MAX_WINDOW_TOKENS {
             if cancel.load(Ordering::Relaxed) {
                 return Err(CANCELLED.into());
@@ -274,11 +289,13 @@ fn segments(ids: &Ids, tokens: &Tokens, sampled: &[i64], offset: usize, window: 
 pub fn transcribe(
     model_dir: &Path,
     language: &str,
+    translate: bool,
     pcm: &[f32],
     progress: &dyn Fn(f32),
     cancel: &AtomicBool,
-) -> Result<Vec<Segment>, String> {
+) -> Result<(Vec<Segment>, Option<String>), String> {
     let ids = Ids::load(&read_json(&model_dir.join("generation_config.json"))?)?;
+    let task = ids.task(translate)?;
     let tokens = Tokens::load(&model_dir.join("vocab.json"))?;
     let mut model = Model::load(crate::onnx::environment()?, model_dir)?;
     let mel = Mel::new(model.n_mels);
@@ -295,9 +312,22 @@ pub fn transcribe(
             Some(lang) => lang,
             None => *language.insert(model.detect(&ids, &hidden)?),
         };
-        let sampled = model.generate(&ids, &hidden, lang, cancel)?;
+        if translate && ids.code(lang).as_deref() == Some(ENGLISH) {
+            return Err(ALREADY_ENGLISH.into());
+        }
+        let sampled = model.generate(&ids, &hidden, lang, task, cancel)?;
         offset += segments(&ids, &tokens, &sampled, offset, window.len(), &mut out);
         progress((offset as f32 / pcm.len() as f32).min(1.0));
     }
-    Ok(out)
+    Ok((out, language.and_then(|id| ids.code(id))))
+}
+
+pub fn detect(model_dir: &Path, pcm: &[f32]) -> Result<String, String> {
+    let ids = Ids::load(&read_json(&model_dir.join("generation_config.json"))?)?;
+    let mut model = Model::load(crate::onnx::environment()?, model_dir)?;
+    let mel = Mel::new(model.n_mels);
+    let window = &pcm[..N_SAMPLES.min(pcm.len())];
+    let hidden = model.encode(mel.features(window))?;
+    let lang = model.detect(&ids, &hidden)?;
+    ids.code(lang).ok_or_else(|| "no language token".into())
 }

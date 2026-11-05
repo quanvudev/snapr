@@ -3,7 +3,7 @@ use crate::State;
 use crate::capture;
 use crate::gif::GifTask;
 use crate::subtitle::{Position, Size, SubtitleTask};
-use crate::transcript::TranscribeTask;
+use crate::transcript::{TranscribeTask, Track};
 use crate::video::CompressTask;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -25,6 +25,9 @@ pub trait Task: Send {
     fn kind(&self) -> &'static str;
     fn name(&self) -> String;
     fn source(&self) -> Option<&Path> {
+        None
+    }
+    fn detail(&self) -> Option<String> {
         None
     }
     fn run(&self, progress: &Progress, cancel: &AtomicBool) -> Result<Option<PathBuf>, String>;
@@ -72,6 +75,7 @@ pub struct QueueItem {
     kind: &'static str,
     name: String,
     source: Option<String>,
+    detail: Option<String>,
     state: ItemState,
     done: u64,
     total: u64,
@@ -83,6 +87,7 @@ struct QueueEnded {
     kind: &'static str,
     name: String,
     source: Option<String>,
+    detail: Option<String>,
     output: Option<String>,
     error: Option<String>,
 }
@@ -101,6 +106,7 @@ pub struct HistoryItem {
     kind: &'static str,
     name: String,
     source: Option<String>,
+    detail: Option<String>,
     output: Option<String>,
     state: HistoryState,
     error: Option<String>,
@@ -115,6 +121,7 @@ struct Entry {
     kind: &'static str,
     name: String,
     source: Option<String>,
+    detail: Option<String>,
     retry: Option<TaskSpec>,
     progress: Arc<Progress>,
     cancel: Arc<AtomicBool>,
@@ -132,6 +139,7 @@ impl Entry {
             kind: self.kind,
             name: self.name.clone(),
             source: self.source.clone(),
+            detail: self.detail.clone(),
             output,
             state,
             error,
@@ -146,6 +154,7 @@ impl Entry {
             kind: self.kind,
             name: self.name.clone(),
             source: self.source.clone(),
+            detail: self.detail.clone(),
             state,
             done: self.progress.done.load(Ordering::Relaxed),
             total: self.progress.total.load(Ordering::Relaxed),
@@ -191,6 +200,7 @@ impl Queue {
                 kind: task.kind(),
                 name: task.name(),
                 source: task.source().map(|path| path.display().to_string()),
+                detail: task.detail(),
                 retry,
                 progress: Arc::new(Progress::new(app)),
                 cancel: Arc::new(AtomicBool::new(false)),
@@ -209,9 +219,13 @@ impl Queue {
         running.chain(items.waiting.iter().map(|item| item.entry.view(ItemState::Waiting))).collect()
     }
 
-    pub fn has(&self, kind: &str, source: &Path) -> bool {
+    pub fn has(&self, kind: &str, source: &Path, detail: Option<&str>) -> bool {
         let source = source.display().to_string();
-        self.list().iter().any(|item| item.kind == kind && item.source.as_deref() == Some(source.as_str()))
+        self.list().iter().any(|item| {
+            item.kind == kind
+                && item.source.as_deref() == Some(source.as_str())
+                && (detail.is_none() || item.detail.as_deref() == detail)
+        })
     }
 
     pub fn history(&self) -> Vec<HistoryItem> {
@@ -282,13 +296,13 @@ fn report(app: &AppHandle, ended: HistoryItem) {
     if ended.state == HistoryState::Cancelled {
         return;
     }
-    let HistoryItem { id, kind, name, source, output, error, .. } = ended;
+    let HistoryItem { id, kind, name, source, detail, output, error, .. } = ended;
     if output.is_some() {
         let _ = app.emit_to("main", events::GALLERY_CHANGED, ());
     }
     let visible = app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false));
     if visible {
-        let _ = app.emit_to("main", events::QUEUE_ENDED, QueueEnded { id, kind, name, source, output, error });
+        let _ = app.emit_to("main", events::QUEUE_ENDED, QueueEnded { id, kind, name, source, detail, output, error });
         return;
     }
     let vi = app.state::<State>().cfg.read().unwrap().language == "vi";
@@ -374,7 +388,18 @@ pub enum TaskSpec {
     Gif { path: String, start_ms: u64, end_ms: Option<u64>, width: Option<u32>, fps: u32 },
     Compress { path: String, quality: String, height: Option<u32> },
     Transcribe { path: String },
-    Subtitle { path: String, position: Position, size: Size },
+    Translate {
+        path: String,
+        #[serde(default)]
+        target: Option<String>,
+    },
+    Subtitle {
+        path: String,
+        position: Position,
+        size: Size,
+        #[serde(default)]
+        track: Track,
+    },
 }
 
 impl TaskSpec {
@@ -384,8 +409,11 @@ impl TaskSpec {
                 Box::new(GifTask::validated(app, &path, start_ms, end_ms, width, fps)?)
             }
             TaskSpec::Compress { path, quality, height } => Box::new(CompressTask::validated(app, &path, &quality, height)?),
-            TaskSpec::Transcribe { path } => Box::new(TranscribeTask::validated(app, &path)?),
-            TaskSpec::Subtitle { path, position, size } => Box::new(SubtitleTask::validated(app, &path, position, size)?),
+            TaskSpec::Transcribe { path } => Box::new(TranscribeTask::validated(app, &path, Track::Original)?),
+            TaskSpec::Translate { path, target } => crate::translate::task::task(app, &path, target.as_deref())?,
+            TaskSpec::Subtitle { path, position, size, track } => {
+                Box::new(SubtitleTask::validated(app, &path, position, size, track)?)
+            }
         })
     }
 }

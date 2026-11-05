@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
-import { api, type GalleryItem, type SubtitlePosition, type SubtitleSize } from "@/lib/api";
+import { api, type GalleryItem, type SubtitlePosition, type SubtitleSize, type Track } from "@/lib/api";
 import { type SubtitleTarget } from "@/hooks/use-gallery";
+import { activeSegment } from "@/hooks/use-transcript";
 import { fileName } from "@/lib/gallery";
+import { trackName } from "@/lib/languages";
 import {
   BOX_ALPHA,
   BOX_PADDING_X_RATIO,
@@ -26,7 +29,7 @@ import {
 type Props = {
   target: SubtitleTarget | null;
   onClose: () => void;
-  onExport: (item: GalleryItem, preset: SubtitlePreset) => void;
+  onExport: (item: GalleryItem, preset: SubtitlePreset, track: Track) => void;
 };
 
 type Dimensions = { intrinsicH: number; renderedW: number; renderedH: number };
@@ -69,11 +72,25 @@ function cueStyle(dims: Dimensions, preset: SubtitlePreset): CSSProperties {
 }
 
 function SubtitleForm({ target, onClose, onExport }: { target: SubtitleTarget } & Omit<Props, "target">) {
-  const { t } = useSettingsContext();
+  const { cfg, t } = useSettingsContext();
   const video = useRef<HTMLVideoElement>(null);
   const [intrinsicH, setIntrinsicH] = useState(0);
   const [rendered, setRendered] = useState<{ w: number; h: number } | null>(null);
   const [preset, setPreset] = useState(loadSubtitlePreset);
+  const [track, setTrack] = useState<Track>(target.track);
+  const [cue, setCue] = useState(target.text);
+
+  const chooseTrack = (next: Track) => {
+    setTrack(next);
+    api
+      .transcriptRead(target.item.path, next)
+      .then((segments) => {
+        const list = segments ?? [];
+        const current = list[activeSegment(list, target.ms)];
+        setCue((current?.text.trim() ? current : list.find((s) => s.text.trim()))?.text.trim() ?? "");
+      })
+      .catch(() => setCue(""));
+  };
 
   useEffect(() => {
     const el = video.current;
@@ -101,10 +118,27 @@ function SubtitleForm({ target, onClose, onExport }: { target: SubtitleTarget } 
               setIntrinsicH(e.currentTarget.videoHeight);
             }}
           />
-          {dims && <div style={cueStyle(dims, preset)}>{target.text || t.subtitleSample}</div>}
+          {dims && <div style={cueStyle(dims, preset)}>{cue || t.subtitleSample}</div>}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        {target.tracks.length > 1 && (
+          <div className="flex items-center gap-2">
+            <span>{t.subtitleTrack}</span>
+            <Select value={track} onValueChange={(v) => v && chooseTrack(v as Track)}>
+              <SelectTrigger>
+                <SelectValue>{(v: Track) => trackName(v, cfg.language, t.trackOriginal, target.item.language)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {target.tracks.map((tr) => (
+                  <SelectItem key={tr} value={tr}>
+                    {trackName(tr, cfg.language, t.trackOriginal, target.item.language)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <span>{t.subtitlePosition}</span>
           <ToggleGroup
@@ -140,7 +174,7 @@ function SubtitleForm({ target, onClose, onExport }: { target: SubtitleTarget } 
         <Button variant="outline" onClick={onClose}>
           {t.cancel}
         </Button>
-        <Button onClick={() => onExport(target.item, preset)}>{t.exportSubtitles}</Button>
+        <Button onClick={() => onExport(target.item, preset, track)}>{t.exportSubtitles}</Button>
       </DialogFooter>
     </>
   );

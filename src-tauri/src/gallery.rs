@@ -1,8 +1,9 @@
 use crate::State;
 use crate::capture;
+use crate::transcript::{self, Track};
 use image::{ImageFormat, RgbaImage};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::os::windows::ffi::OsStrExt;
@@ -74,6 +75,8 @@ pub struct Item {
     size: u64,
     kind: Kind,
     transcript: bool,
+    translations: Vec<&'static str>,
+    language: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -90,8 +93,22 @@ fn is_sidecar(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(SIDECAR_EXT))
 }
 
-fn list(dir: &Path) -> Vec<Item> {
+fn translation_stem(stem: &str) -> Option<&str> {
+    let (base, code) = stem.rsplit_once('.')?;
+    crate::translate::languages::find(code).map(|_| base)
+}
+
+fn translations(stem: &str, sidecars: &HashSet<String>) -> Vec<&'static str> {
+    crate::translate::languages::LANGUAGES
+        .iter()
+        .filter(|language| sidecars.contains(&format!("{stem}.{}", language.code.to_lowercase())))
+        .map(|language| language.code)
+        .collect()
+}
+
+fn list(dir: &Path, languages: &HashMap<String, String>) -> Vec<Item> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let canonical = dir.canonicalize().ok().and_then(|dir| plain(&dir));
     let entries: Vec<_> = entries.flatten().collect();
     let video_stems: HashSet<String> = entries
         .iter()
@@ -109,7 +126,11 @@ fn list(dir: &Path) -> Vec<Item> {
         .iter()
         .filter_map(|entry| {
             let path = entry.path();
-            if is_sidecar(&path) && sidecar_stem(&path).is_some_and(|stem| video_stems.contains(&stem)) {
+            if is_sidecar(&path)
+                && sidecar_stem(&path).is_some_and(|stem| {
+                    video_stems.contains(&stem) || translation_stem(&stem).is_some_and(|base| video_stems.contains(base))
+                })
+            {
                 return None;
             }
             let kind = Kind::of(&path);
@@ -117,8 +138,14 @@ fn list(dir: &Path) -> Vec<Item> {
             let modified = meta.modified().ok()?;
             let date = meta.created().map_or(modified, |created| created.min(modified));
             let date_ms = date.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-            let transcript = kind == Kind::Video && sidecar_stem(&path).is_some_and(|stem| sidecar_stems.contains(&stem));
-            Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind, transcript })
+            let stem = sidecar_stem(&path).filter(|_| kind == Kind::Video);
+            let transcript = stem.as_ref().is_some_and(|stem| sidecar_stems.contains(stem));
+            let translations = stem.as_ref().map(|stem| translations(stem, &sidecar_stems)).unwrap_or_default();
+            let language = canonical
+                .as_ref()
+                .filter(|_| kind == Kind::Video)
+                .and_then(|dir| languages.get(&transcript::languages::key(&dir.join(entry.file_name()))).cloned());
+            Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind, transcript, translations, language })
         })
         .collect();
     items.sort_by_key(|item| std::cmp::Reverse(item.date_ms));
@@ -147,9 +174,9 @@ fn guarded(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn gallery_list(state: tauri::State<State>) -> Vec<Item> {
+pub fn gallery_list(app: AppHandle, state: tauri::State<State>) -> Vec<Item> {
     let dir = state.cfg.read().unwrap().dir();
-    list(&dir)
+    list(&dir, &transcript::languages::all(&app))
 }
 
 #[tauri::command]
@@ -309,13 +336,16 @@ pub(crate) fn delete_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn delete_with_sidecar(path: &Path) -> Result<(), String> {
+fn delete_with_sidecar(app: &AppHandle, path: &Path) -> Result<(), String> {
     delete_file(path)?;
     if Kind::of(path) == Kind::Video {
-        let sidecar = path.with_extension(SIDECAR_EXT);
-        if sidecar.is_file() {
-            let _ = delete_file(&sidecar);
+        for track in Track::all() {
+            let sidecar = track.path(path);
+            if sidecar.is_file() {
+                let _ = delete_file(&sidecar);
+            }
         }
+        transcript::languages::forget(app, path);
     }
     Ok(())
 }
@@ -323,7 +353,7 @@ fn delete_with_sidecar(path: &Path) -> Result<(), String> {
 #[tauri::command]
 pub fn gallery_delete(app: AppHandle, path: String) -> Result<(), String> {
     let path = guarded(&app, &path)?;
-    delete_with_sidecar(&path)
+    delete_with_sidecar(&app, &path)
 }
 
 #[tauri::command]
@@ -334,7 +364,7 @@ pub fn gallery_delete_many(app: AppHandle, paths: Vec<String>) -> Result<Vec<Bul
         .collect::<Result<Vec<_>, _>>()?;
     let mut failures = Vec::new();
     for (path, file) in validated {
-        if let Err(error) = delete_with_sidecar(&file) {
+        if let Err(error) = delete_with_sidecar(&app, &file) {
             failures.push(BulkFailure { path, error });
         }
     }

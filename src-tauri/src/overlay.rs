@@ -1,9 +1,12 @@
 use crate::draw::{self, Sketch, Style, Tool};
-use crate::toolbar::{self, Button, Palette, Toolbar};
+use crate::toolbar::{self, Button, Palette, Scene, Toolbar};
 use image::{RgbaImage, imageops};
 use softbuffer::{Context, Surface};
+use crate::config::RedactStyle;
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use tiny_skia::Pixmap;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -19,6 +22,10 @@ const HANDLE_HIT: f32 = 14.0;
 const HANDLE_FILL: u32 = 0xffffff;
 const MIN_SELECTION: i32 = 3;
 const LABEL_GAP: f32 = 8.0;
+const NOTICE: Duration = Duration::from_millis(1500);
+
+static TOKEN: AtomicU64 = AtomicU64::new(0);
+
 const HANDLES: [Handle; 8] = [
     Handle(-1, -1),
     Handle(0, -1),
@@ -42,6 +49,7 @@ pub enum Outcome {
     Save(Shot),
     Copy(RgbaImage),
     Pin(RgbaImage),
+    Detect { token: u64, image: RgbaImage },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -99,6 +107,7 @@ pub struct Overlay {
     monitors: Vec<Rect>,
     draw: Option<Style>,
     vi: bool,
+    detectable: bool,
     modifiers: ModifiersState,
     annotation: Option<Annotation>,
 }
@@ -112,6 +121,9 @@ struct Annotation {
     adjust: Option<Adjust>,
     space: bool,
     label: Option<((i32, i32), Pixmap)>,
+    detect: Option<u64>,
+    detected: Option<Rect>,
+    notice: Option<(Instant, Pixmap)>,
 }
 
 fn desktop() -> Option<(i32, i32, RgbaImage, Vec<Rect>)> {
@@ -146,7 +158,14 @@ fn desktop() -> Option<(i32, i32, RgbaImage, Vec<Rect>)> {
 }
 
 impl Overlay {
-    pub fn open(event_loop: &ActiveEventLoop, pick: Pick, record: bool, draw: Option<Style>, vi: bool) -> Option<Self> {
+    pub fn open(
+        event_loop: &ActiveEventLoop,
+        pick: Pick,
+        record: bool,
+        draw: Option<Style>,
+        vi: bool,
+        detectable: bool,
+    ) -> Option<Self> {
         let (mx, my, frame, monitors) = desktop()?;
         let (w, h) = frame.dimensions();
         if w == 0 || h == 0 {
@@ -191,6 +210,7 @@ impl Overlay {
             monitors,
             draw,
             vi,
+            detectable,
             modifiers: ModifiersState::empty(),
             annotation: None,
         })
@@ -296,10 +316,57 @@ impl Overlay {
             adjust: None,
             space: false,
             label: None,
+            detect: None,
+            detected: None,
+            notice: None,
         });
         self.hover_toolbar();
         self.window.request_redraw();
         Outcome::Pending
+    }
+
+    pub fn redactions(&mut self, token: u64, rects: Vec<(f32, f32, f32, f32)>) {
+        let Some(a) = self.annotation.as_mut().filter(|a| a.detect == Some(token)) else { return };
+        a.detect = None;
+        if a.detected == Some(a.sketch.selection()) {
+            if rects.is_empty() {
+                let label = if self.vi { "Không tìm thấy" } else { "Nothing found" };
+                let scale = self.window.scale_factor() as f32;
+                a.notice = toolbar::tag(label, scale).map(|pixmap| (Instant::now() + NOTICE, pixmap));
+            } else {
+                a.sketch.redactions(&rects);
+            }
+        }
+        self.hover_toolbar();
+        self.window.request_redraw();
+    }
+
+    pub fn deadline(&self) -> Option<Instant> {
+        self.annotation.as_ref().and_then(|a| a.notice.as_ref()).map(|(at, _)| *at)
+    }
+
+    pub fn tick(&mut self) {
+        if let Some(a) = self.annotation.as_mut()
+            && a.notice.take_if(|(at, _)| *at <= Instant::now()).is_some()
+        {
+            self.window.request_redraw();
+        }
+    }
+
+    fn detect(&mut self) -> Outcome {
+        let Some(a) = self.annotation.as_mut() else { return Outcome::Pending };
+        if !self.detectable || a.detect.is_some() {
+            return Outcome::Pending;
+        }
+        let selection = a.sketch.selection();
+        let Some(image) = crop(&self.frame, selection) else { return Outcome::Pending };
+        let token = TOKEN.fetch_add(1, Ordering::Relaxed) + 1;
+        a.detect = Some(token);
+        a.detected = Some(selection);
+        a.notice = None;
+        self.hover_toolbar();
+        self.window.request_redraw();
+        Outcome::Detect { token, image }
     }
 
     fn hover_toolbar(&mut self) {
@@ -308,7 +375,8 @@ impl Overlay {
         let (kind, style) = a.sketch.options();
         let fill = style.stroke.fill;
         let selection = a.sketch.selection();
-        let hover = a.toolbar.hit(self.cursor, kind, fill, a.palette).filter(|&b| enabled(&a.sketch, b));
+        let ready = self.detectable && a.detect.is_none();
+        let hover = a.toolbar.hit(self.cursor, kind, fill, a.palette).filter(|&b| enabled(&a.sketch, ready, b));
         let icon = if let Some(adjust) = a.adjust {
             match adjust.grip {
                 Grip::Resize(handle) => handle.cursor(),
@@ -363,7 +431,8 @@ impl Overlay {
                 let fill = style.stroke.fill;
                 let selection = a.sketch.selection();
                 let palette = a.palette.take();
-                if let Some(button) = a.toolbar.hit(self.cursor, kind, fill, palette).filter(|&b| enabled(&a.sketch, b)) {
+                let ready = self.detectable && a.detect.is_none();
+                if let Some(button) = a.toolbar.hit(self.cursor, kind, fill, palette).filter(|&b| enabled(&a.sketch, ready, b)) {
                     match button {
                         Button::Swatch(i) => match palette {
                             Some(Palette::Stroke) => a.sketch.set_colour(draw::PALETTE[i]),
@@ -371,6 +440,9 @@ impl Overlay {
                             None => {}
                         },
                         Button::Tool(tool) => a.sketch.set_tool(tool),
+                        Button::Black => a.sketch.set_redact(RedactStyle::Black),
+                        Button::Pixelate => a.sketch.set_redact(RedactStyle::Pixelate),
+                        Button::Detect => return self.detect(),
                         Button::Undo => a.sketch.undo(),
                         Button::Redo => a.sketch.redo(),
                         Button::Pin => return self.pin(),
@@ -482,6 +554,8 @@ impl Overlay {
                         a.palette = None;
                         a.sketch.set_tool(tool);
                         self.hover_toolbar();
+                    } else if c.eq_ignore_ascii_case("d") {
+                        return self.detect();
                     } else if c.eq_ignore_ascii_case("f") {
                         a.palette = None;
                         a.sketch.toggle_fill();
@@ -560,8 +634,30 @@ impl Overlay {
             }
             let (kind, style) = a.sketch.options();
             let sketch = &a.sketch;
-            for (view, at) in a.toolbar.render(sketch.tool(), kind, &style, a.hover, a.palette, &|b| enabled(sketch, b)) {
+            let ready = self.detectable && a.detect.is_none();
+            let busy = a.detect.is_some();
+            let scene = Scene {
+                tool: sketch.tool(),
+                kind,
+                style: &style,
+                hover: a.hover,
+                enabled: &|b| enabled(sketch, ready, b),
+                palette: a.palette,
+                busy,
+            };
+            for (view, at) in a.toolbar.render(&scene) {
                 blit(&mut buf, sw, (w as u32, h), view, at);
+            }
+            if let Some((_, notice)) = &a.notice
+                && let Some(at) = a.toolbar.anchor(
+                    Button::Detect,
+                    (notice.width() as i32, notice.height() as i32),
+                    kind,
+                    style.stroke.fill,
+                    a.palette,
+                )
+            {
+                blit(&mut buf, sw, (w as u32, h), notice, at);
             }
             if let Some(button) = a.hover
                 && let Some((tip, at)) = a.toolbar.tooltip(button, kind, style.stroke.fill, a.palette)
@@ -662,9 +758,10 @@ fn size_tag(cache: &mut Option<((i32, i32), Pixmap)>, selection: Rect, monitor: 
     Some((pixmap, at))
 }
 
-fn enabled(sketch: &Sketch, button: Button) -> bool {
+fn enabled(sketch: &Sketch, ready: bool, button: Button) -> bool {
     match button {
         Button::Tool(Tool::Text) => draw::text_available(),
+        Button::Detect => ready,
         Button::Undo => sketch.can_undo(),
         Button::Redo => sketch.can_redo(),
         _ => true,

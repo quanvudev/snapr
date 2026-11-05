@@ -5,13 +5,16 @@ import { DownloadedModels } from "./downloaded-models";
 import { ModelCard } from "./model-card";
 import { ModelUsageRow } from "./model-usage-row";
 import { paddleLabels } from "./paddle-labels";
-import { usePaddleStore, useWhisperStore } from "./stores";
+import { usePaddleStore, useTranslateStore, useWhisperStore } from "./stores";
+import { TranslateCard, useLicensePrompt } from "./translate-card";
 import { TranscriptLanguageRow } from "./transcript-language-row";
 
 export function Models() {
   const { cfg, t } = useSettingsContext();
   const paddle = usePaddleStore();
   const whisper = useWhisperStore();
+  const license = useLicensePrompt();
+  const translate = useTranslateStore(license.ask);
   const { descs } = paddleLabels(t);
   const paddleDescription = `${descs[paddle.selected as keyof typeof descs]} ${t.paddleNoVi}`;
   const state = (on: boolean) => (on ? t.modelOn : t.modelOff);
@@ -39,7 +42,9 @@ export function Models() {
           label={`${t.recording} →`}
         />
       </SettingsCard>
-      <DownloadedModels stores={[paddle, whisper]} />
+      <SectionHeading>{t.modelsTranslation}</SectionHeading>
+      <TranslateCard store={translate} asking={license.asking} onCloseLicense={license.close} />
+      <DownloadedModels stores={[paddle, whisper, translate]} />
     </>
   );
 }

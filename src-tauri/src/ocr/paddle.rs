@@ -16,7 +16,7 @@ const BATCH: usize = 8;
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
-pub type Line = (f32, f32, f32, String);
+pub type Line = (f32, f32, f32, f32, String);
 
 struct Rect {
     x: f32,
@@ -32,7 +32,14 @@ pub struct Engine {
 }
 
 fn session(env: &Environment, path: &Path) -> Result<Session, String> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
     Session::builder(env)
+        .map_err(|e| e.to_string())?
+        .with_intra_threads(threads)
+        .map_err(|e| e.to_string())?
+        .with_intra_op_spinning(false)
+        .map_err(|e| e.to_string())?
+        .with_inter_op_spinning(false)
         .map_err(|e| e.to_string())?
         .commit_from_file(path)
         .map_err(|e| e.to_string())
@@ -60,7 +67,7 @@ impl Engine {
             for (&i, text) in chunk.iter().zip(texts) {
                 let b = &boxes[i];
                 if !text.trim().is_empty() {
-                    lines.push((b.x, b.y, b.y + b.h, text));
+                    lines.push((b.x, b.y, b.w, b.h, text));
                 }
             }
         }

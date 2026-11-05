@@ -6,7 +6,7 @@ use crate::recording::{ended, record};
 use crate::ring::{self, Entry, Ring};
 use crate::toast::{self, Toast};
 use crate::tray::tooltip;
-use crate::{Action, State, capture, draw, events, frame, panel, pin, transcript, video};
+use crate::{Action, State, capture, draw, events, frame, ocr, paddle, panel, pin, redact, transcript, video};
 use image::RgbaImage;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -17,6 +17,7 @@ use winit::application::ApplicationHandler;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::WindowId;
+use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetCursorPos, GetWindowRect};
 
@@ -105,12 +106,16 @@ impl ApplicationHandler<Action> for Snap {
             entry.run(&self.app);
         }
         self.pins.tick();
+        if let Some(overlay) = self.overlay.as_mut() {
+            overlay.tick();
+        }
         self.tick_countdown(event_loop);
         let deadline = [
             self.countdown.as_ref().map(|c| c.next),
             self.toast.as_ref().and_then(|t| t.deadline()),
             self.ring.as_ref().map(|r| r.deadline()),
             self.pins.deadline(),
+            self.overlay.as_ref().and_then(Overlay::deadline),
         ]
         .into_iter()
         .flatten()
@@ -162,13 +167,14 @@ impl ApplicationHandler<Action> for Snap {
         }
         let Some(overlay) = self.overlay.as_mut().filter(|o| o.id() == id) else { return };
         let outcome = overlay.event(event);
-        if !matches!(outcome, Outcome::Pending)
+        if !matches!(outcome, Outcome::Pending | Outcome::Detect { .. })
             && let Some(style) = overlay.style()
         {
             self.style = style;
         }
         match outcome {
             Outcome::Pending => {}
+            Outcome::Detect { token, image } => detect(&self.app, token, image),
             Outcome::Cancel => {
                 self.overlay = None;
                 if std::mem::replace(&mut self.mode, Mode::Shot) == Mode::Record {
@@ -225,7 +231,8 @@ impl ApplicationHandler<Action> for Snap {
                     }
                     (_, shot) => {
                         self.pins.show_capture();
-                        let _ = self.jobs.send(Job::Save(shot));
+                        let redact = matches!(shot, Shot::Window { .. });
+                        let _ = self.jobs.send(Job::Save(shot, redact));
                     }
                 }
             }
@@ -243,7 +250,7 @@ impl ApplicationHandler<Action> for Snap {
                 }
                 match result {
                     Ok(img) => {
-                        let _ = self.jobs.send(Job::Save(Shot::Ready(img)));
+                        let _ = self.jobs.send(Job::Save(Shot::Ready(img), true));
                     }
                     Err(e) => tooltip(&self.app, &format!("Snapr: {e}")),
                 }
@@ -258,6 +265,11 @@ impl ApplicationHandler<Action> for Snap {
                 self.cancel_countdown();
             }
             Action::Draw => self.pick(event_loop, Pick::Area, Mode::Shot, true),
+            Action::Redactions { token, rects } => {
+                if let Some(overlay) = self.overlay.as_mut() {
+                    overlay.redactions(token, rects);
+                }
+            }
             Action::Ring => self.open_ring(event_loop),
             Action::Pin(path) => self.open_pin(event_loop, path),
             Action::PinMany(paths) => self.open_pins(event_loop, paths),
@@ -301,7 +313,9 @@ impl ApplicationHandler<Action> for Snap {
 impl Snap {
     fn queue_transcript(&self, path: &std::path::Path) {
         let Some(path) = path.to_str() else { return };
-        if let Ok(task) = transcript::TranscribeTask::validated(&self.app, path) {
+        let translate = self.app.state::<State>().cfg.read().unwrap().record_translate;
+        if let Ok(task) = transcript::TranscribeTask::validated(&self.app, path, transcript::Track::Original) {
+            let task = task.then_translate(translate);
             let _ = self.app.state::<State>().queue.add(&self.app, Box::new(task), None);
         }
     }
@@ -395,8 +409,16 @@ impl Snap {
         }
         self.toast = None;
         self.pins.hide_capture();
-        let vi = self.app.state::<State>().cfg.read().unwrap().language == "vi";
-        self.overlay = Overlay::open(event_loop, pick, mode == Mode::Record && matches!(pick, Pick::Area), draw.then_some(self.style), vi);
+        let state = self.app.state::<State>();
+        let (vi, detectable) = {
+            let cfg = state.cfg.read().unwrap();
+            self.style.redact = cfg.redact_style();
+            let ocr = state.ocr.load(Ordering::Relaxed) || paddle::for_redaction(&self.app, &cfg).is_some();
+            let ready = ocr && !redact::Rules::from(&cfg.redact).is_empty();
+            (cfg.language == "vi", ready)
+        };
+        let record = mode == Mode::Record && matches!(pick, Pick::Area);
+        self.overlay = Overlay::open(event_loop, pick, record, draw.then_some(self.style), vi, detectable);
         self.mode = if self.overlay.is_some() { mode } else { Mode::Shot };
         if self.overlay.is_none() {
             self.pins.show_capture();
@@ -471,6 +493,24 @@ impl Snap {
             }
         }
     }
+}
+
+fn detect(app: &AppHandle, token: u64, image: RgbaImage) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let state = app.state::<State>();
+        let (rules, model, prefer) = {
+            let cfg = state.cfg.read().unwrap();
+            (redact::Rules::from(&cfg.redact), paddle::for_redaction(&app, &cfg), cfg.redact_paddle())
+        };
+        let rects = if rules.is_empty() {
+            Vec::new()
+        } else {
+            ocr::words(&image, model.as_ref(), prefer).map(|lines| redact::find(&lines, &rules, image.dimensions())).unwrap_or_default()
+        };
+        let _ = state.proxy.lock().unwrap().send_event(Action::Redactions { token, rects });
+    });
 }
 
 pub(crate) fn spawn_capture(app: AppHandle) -> EventLoopProxy<Action> {

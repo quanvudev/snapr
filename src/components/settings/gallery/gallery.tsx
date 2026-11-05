@@ -16,6 +16,7 @@ import { DeleteDialog } from "./delete-dialog";
 import { GalleryGroup } from "./gallery-group";
 import { GifDialog } from "./gif-dialog";
 import { SubtitleDialog } from "./subtitle-dialog";
+import { TranslateDialog } from "./translate-dialog";
 import { Viewer } from "./viewer";
 
 export function Gallery() {
@@ -59,13 +60,15 @@ export function Gallery() {
           {...g.viewer}
           items={g.items}
           actions={g.actions}
-          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget || !!g.subtitleTarget}
+          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget || !!g.subtitleTarget || !!g.translateTarget}
           text={g.text}
           onToggleText={g.toggleText}
           onCloseText={g.closeText}
           transcriptOpen={!!g.transcriptVideo}
           onToggleTranscript={g.toggleTranscript}
           onCloseTranscript={g.closeTranscript}
+          transcriptTrack={g.transcriptTrack}
+          onTranscriptTrack={g.setTranscriptTrack}
           onStep={g.step}
           onSelect={g.view}
           origin={origin}
@@ -226,6 +229,7 @@ onCompress={g.actions.compress}
         onError={g.actions.compressFailed}
       />
       <SubtitleDialog target={g.subtitleTarget} onClose={g.closeSubtitle} onExport={g.actions.exportSubtitle} />
+      <TranslateDialog target={g.translateTarget} onClose={g.closeTranslate} onTranslate={g.actions.translate} />
       <DeleteDialog items={g.pendingDelete} onCancel={g.cancelDelete} onConfirm={g.confirmDelete} />
     </div>
   );

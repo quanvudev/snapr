@@ -1,6 +1,6 @@
 use crate::gif::{self, HNS_PER_MS, Media, Video};
 use crate::queue::{self, CANCELLED, Progress, Task};
-use crate::transcript::{self, AudioFormat, NO_AUDIO, SRT_EXT, Segment};
+use crate::transcript::{self, AudioFormat, NO_AUDIO, Segment, Track};
 use crate::video::{self, Quality};
 use crate::{draw, toolbar};
 use ab_glyph::FontVec;
@@ -159,6 +159,7 @@ pub struct SubtitleTask {
     path: PathBuf,
     out_dir: PathBuf,
     segments: Vec<Segment>,
+    track: Track,
     position: Position,
     size: Size,
     font: FontVec,
@@ -177,22 +178,25 @@ fn read_audio(reader: Option<&IMFSourceReader>) -> Result<Option<(Vec<u8>, u64)>
 }
 
 impl SubtitleTask {
-    pub fn validated(app: &AppHandle, path: &str, position: Position, size: Size) -> Result<SubtitleTask, String> {
+    pub fn validated(app: &AppHandle, path: &str, position: Position, size: Size, track: Track) -> Result<SubtitleTask, String> {
         let path = video::guarded_mp4(app, path)?;
         let out_dir = path.parent().ok_or("no output folder")?.to_path_buf();
-        let srt = std::fs::read_to_string(path.with_extension(SRT_EXT)).map_err(|_| NO_TRANSCRIPT.to_string())?;
+        let srt = std::fs::read_to_string(track.path(&path)).map_err(|_| NO_TRANSCRIPT.to_string())?;
         let segments: Vec<Segment> =
             transcript::parse_srt(&srt).into_iter().filter(|segment| !segment.text.trim().is_empty()).collect();
         if segments.is_empty() {
             return Err(NO_TRANSCRIPT.into());
         }
         let font = draw::system_font(&FONT_FILES).ok_or(NO_FONT)?;
-        Ok(SubtitleTask { path, out_dir, segments, position, size, font })
+        Ok(SubtitleTask { path, out_dir, segments, track, position, size, font })
     }
 
     fn stem(&self) -> String {
         let stem = self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        format!("{stem}{SUBTITLED_SUFFIX}")
+        match self.track.code() {
+            Some(code) => format!("{stem}{SUBTITLED_SUFFIX}_{code}"),
+            None => format!("{stem}{SUBTITLED_SUFFIX}"),
+        }
     }
 
     fn active(&self, ms: u64) -> Option<usize> {
@@ -337,12 +341,13 @@ mod tests {
     fn encodes_without_stalling() {
         let Ok(video) = std::env::var(TEST_ENV) else { return };
         let path = PathBuf::from(video);
-        let srt = std::fs::read_to_string(path.with_extension(SRT_EXT)).unwrap();
+        let srt = std::fs::read_to_string(Track::Original.path(&path)).unwrap();
         let segments = transcript::parse_srt(&srt).into_iter().filter(|s| !s.text.trim().is_empty()).collect();
         let task = SubtitleTask {
             out_dir: std::env::temp_dir(),
             path,
             segments,
+            track: Track::Original,
             position: Position::Bottom,
             size: Size::Medium,
             font: draw::system_font(&FONT_FILES).unwrap(),

@@ -2,10 +2,11 @@ import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-m
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions } from "@/hooks/use-gallery";
 import type { GalleryItem } from "@/lib/api";
-import { isMp4 } from "@/lib/gallery";
+import { canTranslate, isMp4 } from "@/lib/gallery";
 
 export function ItemMenu({ item, actions }: { item: GalleryItem; actions: GalleryActions }) {
-  const { t, ocr } = useSettingsContext();
+  const { t, ocr, translator } = useSettingsContext();
+  const hymt = translator.status.ready;
   return (
     <>
       <ContextMenuItem onClick={() => actions.open(item)}>{t.openDefault}</ContextMenuItem>
@@ -20,7 +21,13 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
       {isMp4(item) && <ContextMenuItem onClick={() => actions.openGif(item)}>{t.exportGif}</ContextMenuItem>}
       {isMp4(item) && <ContextMenuItem onClick={() => actions.openCompress(item)}>{t.compressVideo}</ContextMenuItem>}
       {isMp4(item) && <ContextMenuItem onClick={() => actions.transcribe(item)}>{t.transcribe}</ContextMenuItem>}
-      {isMp4(item) && item.transcript && (
+      {canTranslate(item, hymt) &&
+        (hymt ? (
+          <ContextMenuItem onClick={() => actions.openTranslate(item)}>{t.translateSubtitles}</ContextMenuItem>
+        ) : (
+          <ContextMenuItem onClick={() => actions.translate(item)}>{t.translateToEnglish}</ContextMenuItem>
+        ))}
+      {isMp4(item) && (item.transcript || item.translations.length > 0) && (
         <ContextMenuItem onClick={() => actions.openSubtitleFromTranscript(item)}>{t.exportSubtitles}</ContextMenuItem>
       )}
       <ContextMenuSeparator />

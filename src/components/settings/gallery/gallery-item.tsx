@@ -102,7 +102,7 @@ export function GalleryItem({ item, actions, onOpen, selectMode, selected, onSel
             />
           }
         >
-          <Thumb item={item} />
+          <Thumb item={item} badges />
           {!isViewable(item) && (
             <span className="absolute inset-x-0 bottom-0 truncate bg-background/80 px-1.5 py-0.5 text-xs">
               {fileName(item.path)}

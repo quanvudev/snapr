@@ -1,6 +1,7 @@
 use crate::overlay::{self, Shot};
 use crate::tray::{refresh, tooltip};
-use crate::{Action, State, capture, ocr, paddle};
+use crate::{Action, State, capture, draw, ocr, paddle, redact};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -14,7 +15,7 @@ pub(crate) fn spawn(worker: AppHandle, proxy: EventLoopProxy<Action>) -> Sender<
         let mut backgrounds = capture::BackgroundCache::default();
         for job in queue {
             match job {
-                Job::Save(shot) => work(&worker, &proxy, &mut backgrounds, shot),
+                Job::Save(shot, redact) => work(&worker, &proxy, &mut backgrounds, shot, redact),
                 Job::Text(shot) => read_text(&worker, shot),
             }
         }
@@ -23,11 +24,11 @@ pub(crate) fn spawn(worker: AppHandle, proxy: EventLoopProxy<Action>) -> Sender<
 }
 
 pub(crate) enum Job {
-    Save(Shot),
+    Save(Shot, bool),
     Text(Shot),
 }
 
-fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut capture::BackgroundCache, shot: Shot) {
+fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut capture::BackgroundCache, shot: Shot, redact: bool) {
     let Some(img) = (match shot {
         Shot::Ready(img) => Some(img),
         Shot::Window { hwnd, border, frame, rect } => capture::window(hwnd, border)
@@ -39,7 +40,7 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
     };
     let cfg = app.state::<State>().cfg.read().unwrap().clone();
     let mut bg_error = None;
-    let mut img = img;
+    let mut img = if redact && cfg.redact.auto_capture { auto_redact(app, &cfg, img) } else { img };
     let img = if cfg.padding.enabled && cfg.padding.size > 0 {
         if cfg.padding.round {
             capture::mask_corners(&mut img, cfg.padding.radius as f32);
@@ -67,6 +68,24 @@ fn work(app: &AppHandle, proxy: &EventLoopProxy<Action>, backgrounds: &mut captu
             }
         }
         Err(e) => tooltip(app, &format!("Snapr: {e}")),
+    }
+}
+
+fn auto_redact(app: &AppHandle, cfg: &crate::config::Config, img: image::RgbaImage) -> image::RgbaImage {
+    let rules = redact::Rules::from(&cfg.redact);
+    let model = paddle::for_redaction(app, cfg);
+    if rules.is_empty() || (!app.state::<State>().ocr.load(Ordering::Relaxed) && model.is_none()) {
+        return img;
+    }
+    match ocr::words(&img, model.as_ref(), cfg.redact_paddle()) {
+        Ok(lines) => {
+            let rects = redact::find(&lines, &rules, img.dimensions());
+            draw::redact_image(img, &rects, cfg.redact_style())
+        }
+        Err(e) => {
+            tooltip(app, &format!("Snapr: redaction failed: {e}"));
+            img
+        }
     }
 }
 

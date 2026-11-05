@@ -5,12 +5,13 @@ import { SectionHeading } from "../section-heading";
 import { SettingsCard } from "../settings-card";
 import { AutoCompressRow } from "./auto-compress-row";
 import { AutoTranscribeRow } from "./auto-transcribe-row";
+import { AutoTranslateRow } from "./auto-translate-row";
 import { CountdownRow } from "./countdown-row";
 import { FpsRow } from "./fps-row";
 import { QualityRow } from "./quality-row";
 
 export function Recording() {
-  const { t } = useSettingsContext();
+  const { cfg, t } = useSettingsContext();
   const whisper = useWhisperStore();
   return (
     <>
@@ -24,6 +25,7 @@ export function Recording() {
       <SettingsCard>
         <AutoCompressRow />
         <AutoTranscribeRow />
+        {cfg.record_transcribe && <AutoTranslateRow />}
         <ModelStatusRow store={whisper} />
       </SettingsCard>
     </>

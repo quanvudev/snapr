@@ -25,6 +25,7 @@
 **Screenshots**
 - Capture the full screen, a single window (with its rounded corners) or a dragged area, across every monitor.
 - Annotate an area before saving: rectangles, ellipses, arrows and text, with colours, fill, widths, undo / redo, and a selection you can resize or move.
+- Hide sensitive information: black or pixelated redaction boxes, one-click detection of emails, phone numbers, card numbers, IP addresses, API keys and your own patterns, and optional automatic redaction of full-screen and window captures.
 - Optional padding around captures, with a transparent background, your desktop wallpaper or any image.
 - A preview toast after every capture, and pins: float any screenshot on top of your other windows.
 
@@ -40,6 +41,7 @@
 **Transcripts and subtitles**
 - Transcribe the speech in a recording to an `.srt` file with a local Whisper model (Base, Small or Large v3 Turbo).
 - Edit the transcript in the viewer and burn it into a copy of the video as subtitles.
+- Translate subtitles into 38 languages on your machine with the optional HY-MT1.5 model (Vietnamese ⇄ English by default), or into English with Whisper; every translation is its own `.srt` track you can edit and export.
 
 **Gallery**
 - Browse every capture and recording by day, month or year, search by name, and open them in a built-in viewer.
@@ -98,6 +100,8 @@ Press the annotation hotkey and drag an area. A toolbar appears under the select
 | Key | Action |
 | --- | --- |
 | `R` `C` `A` `T` | Rectangle, ellipse, arrow, text |
+| `X` | Redact (black or pixelate) |
+| `D` | Detect sensitive text in the selection and cover it |
 | `F` | Toggle fill for rectangles and ellipses |
 | `[` `]` | Thinner / thicker, or smaller / larger text |
 | `Shift` + drag | Square, circle, or arrow snapped to 45° |
@@ -112,6 +116,12 @@ Press the annotation hotkey and drag an area. A toolbar appears under the select
 
 Click a shape's outline to select and move it; the toolbar then edits that shape's colour and size.
 
+### Redaction
+
+In an annotation, the Redact tool (`X`) draws black or pixelated boxes, and **Detect** (`D`) reads the text in the selection and covers every email address, phone number, card number (Luhn checked), IPv4 address and secret (API keys such as `sk-…` or `ghp_…`, JWTs, long tokens and hashes). The boxes are ordinary shapes: delete a wrong one, or undo the whole batch with `Ctrl+Z`. Saved, copied and pinned images contain the redaction burned in.
+
+Settings → Capture → Redaction turns on **automatic redaction of full-screen and window captures** (off by default): the image is covered before it is saved, copied or previewed, and the original is not kept. The same card picks the default style, the categories to look for, your own regular expressions (for example `EMP-\d{6}`), and the text recognition: Windows OCR (fast, about 0.1 s) or PaddleOCR (more accurate, a few seconds per capture). Detection is an aid, not a guarantee: text the OCR cannot read is not covered.
+
 ### Recording
 
 1. Press the recording hotkey (or use the Action Ring). A panel opens at the bottom of the screen.
@@ -119,7 +129,7 @@ Click a shape's outline to select and move it; the toolbar then edits that shape
 3. Click **Start**, then pick the window or drag the area. An area being recorded gets a thin border that is not recorded.
 4. Pause, resume, stop or discard from the panel or the tray menu. Pressing the hotkey again stops.
 
-Settings → Recording sets the frame rate, quality and countdown, and what happens after recording: compress to 1080p / 720p, and transcribe the speech.
+Settings → Recording sets the frame rate, quality and countdown, and what happens after recording: compress to 1080p / 720p, transcribe the speech, and translate the subtitles.
 
 ### Text and QR codes
 
@@ -130,10 +140,10 @@ Press the text hotkey and drag over any text. If the area contains a QR code its
 Open it from the tray. Captures are grouped by day, month or year and filtered by type or name.
 
 - Click a tile to open the viewer: `←` `→` to browse, `Ctrl+C` to copy, `P` to pin, `Delete` to delete, scroll or `+` `-` `0` to zoom.
-- Right-click a tile for more actions: Export GIF (trim, width and frame rate), Compress video, Transcribe, Export with subtitles, Extract text.
+- Right-click a tile for more actions: Export GIF (trim, width and frame rate), Compress video, Transcribe, Translate subtitles, Export with subtitles, Extract text. Video tiles show a badge for each subtitle language they have.
 - Long-press or `Ctrl`-click to select several, `Shift`-click for a range, `Ctrl+A` for all, then act on them from the bar at the bottom.
-- In the viewer, `T` opens a video's transcript: click a line to jump to it, double-click to edit it.
-- Long-running work (GIF, compression, transcription, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
+- In the viewer, `T` opens a video's transcript: click a line to jump to it, double-click to edit it, and switch between the original and its translations.
+- Long-running work (GIF, compression, transcription, translation, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
 
 ### Action Ring
 
@@ -145,7 +155,9 @@ Turn it on in Settings → Action Ring and give it a hotkey or a mouse button. I
 
 ## AI models
 
-Text capture works out of the box with Windows OCR. PaddleOCR and Whisper are optional: Snapr downloads a model only when you turn on the feature that needs it, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
+Text capture works out of the box with Windows OCR. PaddleOCR, Whisper and HY-MT1.5 are optional: Snapr downloads a model only when you turn on the feature that needs it, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
+
+HY-MT1.5 1.8B (about 1.4 GB, used for subtitle translation) is licensed by Tencent under the Tencent HY Community License, not an open source licence: it does not apply in the European Union, the United Kingdom or South Korea, and its output must not be used to improve other AI models. Snapr shows the licence and asks you to agree before the first download. Tencent is not affiliated with Snapr.
 
 ## Build from source
 
