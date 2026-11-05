@@ -1,11 +1,12 @@
-use crate::State;
+use crate::hotkeys::{apply, ocr_available};
+use crate::{State, events};
 use crate::config::{Config, Hotkeys, RING_SLOT, SLOTS, is_mouse, parse_hotkey, skipped};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx};
@@ -148,7 +149,7 @@ pub fn load(state: tauri::State<State>) -> Loaded {
 
 #[tauri::command]
 pub fn open_settings(app: AppHandle) {
-    crate::show_settings(&app, "settings");
+    show_settings(&app, "settings");
 }
 
 #[tauri::command]
@@ -173,7 +174,7 @@ pub fn set_listening(app: AppHandle, on: bool) {
         let _ = app.global_shortcut().unregister_all();
         crate::mouse::bind(None);
     } else {
-        crate::apply(&app);
+        apply(&app);
     }
 }
 
@@ -193,7 +194,7 @@ pub fn save(app: AppHandle, mut config: Config, autostart: bool) -> Result<(), S
     let enabled = config.update_check && !state.cfg.read().unwrap().update_check;
     *state.cfg.write().unwrap() = config;
     state.probe.lock().unwrap().clear();
-    crate::apply(&app);
+    apply(&app);
     if enabled {
         crate::update::enabled(&app);
     }
@@ -275,4 +276,32 @@ pub fn open_config_file(state: tauri::State<State>) {
 #[tauri::command]
 pub fn open_language_settings() {
     let _ = std::process::Command::new("explorer").arg("ms-settings:regionlanguage").spawn();
+}
+
+pub(crate) fn show_splash(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_size(LogicalSize::new(480.0, 300.0));
+        let _ = w.center();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+pub(crate) fn show_settings(app: &AppHandle, section: &str) {
+    if ocr_available(app) != app.state::<State>().ocr.load(Ordering::Relaxed) {
+        apply(app);
+    }
+    let Some(w) = app.get_webview_window("main") else { return };
+    let (max_w, max_h) = match w.current_monitor() {
+        Ok(Some(m)) => {
+            let area = m.work_area().size.to_logical::<f64>(m.scale_factor());
+            (area.width, area.height)
+        }
+        _ => (1366.0, 768.0),
+    };
+    let _ = w.set_size(LogicalSize::new(max_w.min(1366.0), max_h.min(768.0)));
+    let _ = w.center();
+    let _ = w.show();
+    let _ = w.set_focus();
+    let _ = app.emit_to("main", events::SETTINGS_OPEN, section);
 }

@@ -1,4 +1,5 @@
-use crate::paddle::{self, Fetch, Remote};
+use crate::fetch::{self, Fetch, Remote};
+use crate::paddle;
 use ort::environment::Environment;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -68,7 +69,7 @@ pub fn release(app: &AppHandle, busy: bool) {
 }
 
 fn extract(wheel: &Path, to: &Path) -> Result<(), String> {
-    let tmp = paddle::part(to);
+    let tmp = fetch::part(to);
     let result = (|| {
         let mut archive = zip::ZipArchive::new(File::open(wheel).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         let mut entry = archive.by_name(RUNTIME_ENTRY).map_err(|e| e.to_string())?;

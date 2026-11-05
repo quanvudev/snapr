@@ -1,3 +1,4 @@
+use crate::events;
 use crate::State;
 use crate::capture;
 use crate::gif::GifTask;
@@ -270,11 +271,11 @@ impl Queue {
 }
 
 fn emit(app: &AppHandle) {
-    let _ = app.emit_to("main", "queue", app.state::<State>().queue.list());
+    let _ = app.emit_to("main", events::QUEUE, app.state::<State>().queue.list());
 }
 
 fn emit_history(app: &AppHandle) {
-    let _ = app.emit_to("main", "queue-history", app.state::<State>().queue.history());
+    let _ = app.emit_to("main", events::QUEUE_HISTORY, app.state::<State>().queue.history());
 }
 
 fn report(app: &AppHandle, ended: HistoryItem) {
@@ -283,11 +284,11 @@ fn report(app: &AppHandle, ended: HistoryItem) {
     }
     let HistoryItem { id, kind, name, source, output, error, .. } = ended;
     if output.is_some() {
-        let _ = app.emit_to("main", "gallery-changed", ());
+        let _ = app.emit_to("main", events::GALLERY_CHANGED, ());
     }
     let visible = app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false));
     if visible {
-        let _ = app.emit_to("main", "queue-ended", QueueEnded { id, kind, name, source, output, error });
+        let _ = app.emit_to("main", events::QUEUE_ENDED, QueueEnded { id, kind, name, source, output, error });
         return;
     }
     let vi = app.state::<State>().cfg.read().unwrap().language == "vi";

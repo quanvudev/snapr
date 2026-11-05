@@ -1,6 +1,7 @@
+use crate::events;
 use crate::State;
 use crate::config::WhisperModel;
-use crate::paddle::{self, Fetch, Remote};
+use crate::fetch::{self, Fetch, Remote};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -272,7 +273,7 @@ fn total(app: &AppHandle, model: WhisperModel) -> u64 {
 fn fetch_model(app: &AppHandle, model: WhisperModel, fetch: &mut Fetch) -> Result<(), String> {
     let target = model_dir(app, model);
     fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-    paddle::clean(&target);
+    fetch::clean(&target);
     crate::onnx::ensure(app, fetch)?;
     for (file, remote) in &entry(model).files {
         fetch.file(remote, &target.join(file))?;
@@ -283,13 +284,13 @@ fn fetch_model(app: &AppHandle, model: WhisperModel, fetch: &mut Fetch) -> Resul
 fn run(app: &AppHandle, model: WhisperModel, cancel: &AtomicBool, done: &AtomicU64, total: u64) -> Result<(), String> {
     let mut last = Instant::now() - THROTTLE;
     let mut fetch = Fetch {
-        agent: paddle::agent(),
+        agent: fetch::agent(),
         cancel,
         done,
         report: Box::new(|done| {
             if last.elapsed() >= THROTTLE {
                 last = Instant::now();
-                let _ = app.emit_to("main", "whisper-progress", Progress { model, done, total });
+                let _ = app.emit_to("main", events::WHISPER_PROGRESS, Progress { model, done, total });
             }
         }),
     };
@@ -334,7 +335,7 @@ pub fn whisper_download(app: AppHandle, state: tauri::State<State>, model: Whisp
             Ok(()) => None,
         };
         app.state::<State>().whisper_download.lock().unwrap().take();
-        let _ = app.emit_to("main", "whisper-done", Done { model, error });
+        let _ = app.emit_to("main", events::WHISPER_DONE, Done { model, error });
     });
     Ok(())
 }

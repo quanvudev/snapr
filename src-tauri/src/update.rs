@@ -1,3 +1,4 @@
+use crate::events;
 use crate::State;
 use crate::settings::wide;
 use base64::Engine;
@@ -76,7 +77,7 @@ fn set(app: &AppHandle, f: impl FnOnce(&mut Status)) {
         f(&mut u.status);
         u.status.clone()
     };
-    let _ = app.emit_to("main", "update-status", status);
+    let _ = app.emit_to("main", events::UPDATE_STATUS, status);
 }
 
 fn recording(app: &AppHandle) -> bool {
@@ -112,11 +113,11 @@ fn found(app: &AppHandle, version: String) {
         let _ = app.notification().builder().title("Snapr").body(body).show();
     }
     let status = state.update.lock().unwrap().status.clone();
-    let _ = app.emit_to("main", "update-status", status);
+    let _ = app.emit_to("main", events::UPDATE_STATUS, status);
 }
 
 fn newer(current: &semver::Version) -> Result<Option<String>, String> {
-    let text = crate::paddle::agent()
+    let text = crate::fetch::agent()
         .get(format!("{RELEASES}/latest/download/latest.json"))
         .call()
         .map_err(|e| e.to_string())?
@@ -170,7 +171,7 @@ fn sibling(exe: &Path, suffix: &str) -> PathBuf {
 }
 
 fn signature(url: &str) -> Result<Signature, String> {
-    let text = crate::paddle::agent()
+    let text = crate::fetch::agent()
         .get(url)
         .call()
         .map_err(|e| e.to_string())?
@@ -191,7 +192,7 @@ fn verify(app: &AppHandle, bytes: &[u8], sig: &Signature) -> Result<(), String> 
 fn download(app: &AppHandle, version: &str, to: &Path) -> Result<(), String> {
     let url = format!("{RELEASES}/download/v{version}/Snapr_{version}_x64.exe");
     let sig = signature(&format!("{url}.sig"))?;
-    let mut response = crate::paddle::agent().get(&url).call().map_err(|e| e.to_string())?;
+    let mut response = crate::fetch::agent().get(&url).call().map_err(|e| e.to_string())?;
     let total = response.body().content_length().unwrap_or(0);
     let mut reader = response.body_mut().with_config().limit(MAX_EXE).reader();
     let mut bytes = Vec::with_capacity(total as usize);
@@ -355,7 +356,7 @@ pub fn enabled(app: &AppHandle) {
 }
 
 pub fn from_tray(app: &AppHandle) {
-    crate::show_settings(app, "about");
+    crate::settings::show_settings(app, "about");
     let app = app.clone();
     tauri::async_runtime::spawn(async move { install(&app).await });
 }

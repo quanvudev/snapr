@@ -258,6 +258,9 @@ impl SubtitleTask {
             if cancel.load(Ordering::Relaxed) {
                 return Err(CANCELLED.into());
             }
+            if chunk.is_none() && audio.is_some() {
+                encoder.end_audio();
+            }
             let video_stamp = pending.as_ref().map(|(_, stamp)| *stamp).or(frame.as_ref().map(|(_, stamp)| *stamp));
             let take_video = match (video_stamp, &chunk) {
                 (None, None) => break,

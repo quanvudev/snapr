@@ -1,7 +1,10 @@
 use crate::config::RingItem;
 use crate::overlay::{Pick, Rect};
 use crate::settings::wide;
-use crate::{Action, State, draw, gallery, show_settings, tooltip, toolbar, trigger};
+use crate::tray::tooltip;
+use crate::hotkeys::trigger;
+use crate::settings::show_settings;
+use crate::{Action, State, draw, gallery, toolbar};
 use image::RgbaImage;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::{PI, TAU};

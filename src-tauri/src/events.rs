@@ -1,0 +1,12 @@
+pub const GALLERY_CHANGED: &str = "gallery-changed";
+pub const PADDLE_PROGRESS: &str = "paddle-progress";
+pub const PADDLE_DONE: &str = "paddle-done";
+pub const WHISPER_PROGRESS: &str = "whisper-progress";
+pub const WHISPER_DONE: &str = "whisper-done";
+pub const QUEUE: &str = "queue";
+pub const QUEUE_ENDED: &str = "queue-ended";
+pub const QUEUE_HISTORY: &str = "queue-history";
+pub const SETTINGS_OPEN: &str = "settings-open";
+pub const UPDATE_STATUS: &str = "update-status";
+pub const RECORD_PANEL: &str = "record-panel";
+pub const RECORD_LEVEL: &str = "record-level";

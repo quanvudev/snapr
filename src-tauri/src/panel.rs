@@ -1,3 +1,4 @@
+use crate::events;
 use crate::config::RecordMode;
 use crate::overlay::Rect;
 use crate::{audio, Action, State};
@@ -86,7 +87,7 @@ fn update(app: &AppHandle, f: impl FnOnce(&mut Panel)) {
         f(&mut panel);
         panel.state.clone()
     };
-    let _ = app.emit("record-panel", state);
+    let _ = app.emit(events::RECORD_PANEL, state);
 }
 
 fn work_area(app: &AppHandle) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>, f64)> {
@@ -138,11 +139,11 @@ fn listen(app: &AppHandle, mic: &str, speaker: &str, record: bool) -> Option<aud
         speaker,
         record,
         move |value| {
-            let _ = level.emit_to(PANEL, "record-level", value);
+            let _ = level.emit_to(PANEL, events::RECORD_LEVEL, value);
         },
         move || update(&lost, |p| p.state.warning = Some(MIC_LOST)),
     )
-    .map_err(|e| crate::tooltip(app, &format!("Snapr: {e}")))
+    .map_err(|e| crate::tray::tooltip(app, &format!("Snapr: {e}")))
     .ok()
 }
 
@@ -440,18 +441,18 @@ pub fn record_close(app: AppHandle) {
 
 #[tauri::command]
 pub fn record_pause(app: AppHandle) {
-    crate::pause_recording(&app, true);
+    crate::recording::pause_recording(&app, true);
 }
 
 #[tauri::command]
 pub fn record_resume(app: AppHandle) {
-    crate::pause_recording(&app, false);
+    crate::recording::pause_recording(&app, false);
 }
 
 #[tauri::command]
 pub fn record_stop(app: AppHandle) {
-    if !crate::stop_recording(&app) {
-        crate::trigger(&app, &Action::CancelCountdown);
+    if !crate::recording::stop_recording(&app) {
+        crate::hotkeys::trigger(&app, &Action::CancelCountdown);
     }
 }
 
@@ -461,11 +462,11 @@ pub fn record_discard(app: AppHandle) {
     let running = state.recording.lock().unwrap().is_some();
     if running {
         state.discard.store(true, std::sync::atomic::Ordering::Relaxed);
-        if !crate::stop_recording(&app) {
+        if !crate::recording::stop_recording(&app) {
             state.discard.store(false, std::sync::atomic::Ordering::Relaxed);
         }
     } else {
-        crate::trigger(&app, &Action::CancelCountdown);
+        crate::hotkeys::trigger(&app, &Action::CancelCountdown);
     }
 }
 

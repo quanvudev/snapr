@@ -1,23 +1,18 @@
+use crate::events;
 use crate::State;
 use crate::config::{Config, OcrEngine, PaddleSize};
+use crate::fetch::{Fetch, Remote, agent, clean, disk_bytes, part};
 use crate::ocr::PaddleModel;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use yaml_rust2::{Yaml, YamlLoader};
-
-pub(crate) struct Remote {
-    pub(crate) url: &'static str,
-    pub(crate) sha256: &'static str,
-    pub(crate) bytes: u64,
-}
 
 struct Model {
     size: PaddleSize,
@@ -174,84 +169,6 @@ pub fn unload_others(cfg: &Config) {
     }
 }
 
-pub(crate) fn disk_bytes(path: &Path) -> u64 {
-    fs::read_dir(path)
-        .map(|entries| entries.flatten().filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum())
-        .unwrap_or(0)
-}
-
-pub(crate) fn clean(path: &Path) {
-    let Ok(entries) = fs::read_dir(path) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "part") {
-            let _ = fs::remove_file(path);
-        }
-    }
-}
-
-pub(crate) fn part(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".part");
-    path.with_file_name(name)
-}
-
-pub(crate) struct Fetch<'a> {
-    pub(crate) agent: ureq::Agent,
-    pub(crate) cancel: &'a AtomicBool,
-    pub(crate) done: &'a AtomicU64,
-    pub(crate) report: Box<dyn FnMut(u64) + 'a>,
-}
-
-impl Fetch<'_> {
-    pub(crate) fn get(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
-        let result = self.stream(remote, to);
-        if result.is_err() {
-            let _ = fs::remove_file(to);
-        }
-        result
-    }
-
-    fn stream(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
-        let response = self.agent.get(remote.url).call().map_err(|e| e.to_string())?;
-        let mut reader = response.into_body().into_with_config().limit(remote.bytes + 1).reader();
-        let mut file = File::create(to).map_err(|e| e.to_string())?;
-        let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; 64 * 1024];
-        let mut received = 0u64;
-        loop {
-            if self.cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".into());
-            }
-            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-            file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            received += n as u64;
-            let done = self.done.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
-            (self.report)(done);
-        }
-        file.flush().map_err(|e| e.to_string())?;
-        drop(file);
-        let digest: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
-        if received != remote.bytes || digest != remote.sha256 {
-            return Err(format!("checksum mismatch: {}", remote.url.rsplit('/').next().unwrap_or_default()));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn file(&mut self, remote: &Remote, to: &Path) -> Result<(), String> {
-        let tmp = part(to);
-        self.get(remote, &tmp)?;
-        fs::rename(&tmp, to).map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            e.to_string()
-        })
-    }
-}
-
 fn dictionary(yml: &Path) -> Result<String, String> {
     let text = fs::read_to_string(yml).map_err(|e| e.to_string())?;
     let docs = YamlLoader::load_from_str(&text).map_err(|e| e.to_string())?;
@@ -309,14 +226,6 @@ fn fetch_size(app: &AppHandle, root: &Path, size: PaddleSize, fetch: &mut Fetch)
     dict
 }
 
-pub fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(30)))
-        .timeout_per_read(Some(Duration::from_secs(30)))
-        .build()
-        .into()
-}
-
 fn run(app: &AppHandle, size: PaddleSize, cancel: &AtomicBool, done: &AtomicU64, total: u64) -> Result<(), String> {
     let root = dir(app);
     let mut last = Instant::now() - THROTTLE;
@@ -327,7 +236,7 @@ fn run(app: &AppHandle, size: PaddleSize, cancel: &AtomicBool, done: &AtomicU64,
         report: Box::new(|done| {
             if last.elapsed() >= THROTTLE {
                 last = Instant::now();
-                let _ = app.emit_to("main", "paddle-progress", Progress { size, done, total });
+                let _ = app.emit_to("main", events::PADDLE_PROGRESS, Progress { size, done, total });
             }
         }),
     };
@@ -374,8 +283,8 @@ pub fn paddle_download(app: AppHandle, state: tauri::State<State>, size: PaddleS
         app.state::<State>().download.lock().unwrap().take();
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
-            crate::apply(&handle);
-            let _ = handle.emit_to("main", "paddle-done", Done { size, error });
+            crate::hotkeys::apply(&handle);
+            let _ = handle.emit_to("main", events::PADDLE_DONE, Done { size, error });
         });
     });
     Ok(())
@@ -403,6 +312,6 @@ pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSiz
     };
     crate::onnx::release(&app, whisper_busy || download.is_some());
     drop(download);
-    crate::apply(&app);
+    crate::hotkeys::apply(&app);
     removed
 }

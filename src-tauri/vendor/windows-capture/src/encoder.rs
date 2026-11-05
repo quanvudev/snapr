@@ -761,6 +761,7 @@ pub struct VideoEncoder {
     audio_sample_rate: u32,  // Hz (frames per second)
     audio_block_align: u32,  // bytes per interleaved sample frame (channels * (bits/8))
     audio_samples_sent: u64, // number of sample frames (not bytes) emitted so far
+    audio_ended: bool,
 
     // Video sizing constraints
     target_width: u32,
@@ -1039,6 +1040,7 @@ impl VideoEncoder {
             audio_sample_rate: audio_sr,
             audio_block_align,
             audio_samples_sent: 0,
+            audio_ended: false,
             target_width,
             target_height,
             target_color_format,
@@ -1177,6 +1179,7 @@ impl VideoEncoder {
             audio_sample_rate: audio_sr,
             audio_block_align,
             audio_samples_sent: 0,
+            audio_ended: false,
             target_width,
             target_height,
             target_color_format,
@@ -1445,6 +1448,9 @@ impl VideoEncoder {
         if self.is_audio_disabled {
             return Err(VideoEncoderError::AudioDisabled);
         }
+        if self.audio_ended {
+            return Ok(());
+        }
 
         let frames_in_buf = (buffer.len() as u32) / self.audio_block_align;
         let audio_ts_ticks = ((self.audio_samples_sent as i128) * 10_000_000i128) / (self.audio_sample_rate as i128);
@@ -1463,12 +1469,23 @@ impl VideoEncoder {
         Ok(())
     }
 
+    /// Signals the end of the audio stream while video keeps flowing, so the transcoder never waits
+    /// for audio that will not come. Later audio buffers are ignored.
+    #[inline]
+    pub fn end_audio(&mut self) {
+        if !self.audio_ended {
+            self.audio_ended = true;
+            let _ = self.audio_sender.send(None);
+        }
+    }
+
     /// Finishes the encoding and performs any necessary cleanup.
     #[inline]
     pub fn finish(mut self) -> Result<(), VideoEncoderError> {
-        // 1) Signal EOS on both streams.
+        // 1) Signal EOS on both streams, audio first: the transcoder may be waiting for audio before it
+        //    takes more video, so a full bounded video queue only drains once audio has ended.
+        self.end_audio();
         let _ = self.send_frame_message(None);
-        let _ = self.audio_sender.send(None);
 
         // 2) **Close the channels** so any further recv() returns Err immediately. We replace the fields
         //    with dummy senders and drop the originals now.
@@ -1498,9 +1515,10 @@ impl VideoEncoder {
 impl Drop for VideoEncoder {
     #[inline]
     fn drop(&mut self) {
-        // Try to signal EOS, then **close** the channels before waiting.
-        let _ = self.send_frame_message(None);
-        let _ = self.audio_sender.send(None);
+        // Try to signal EOS without blocking (audio first, video only if the queue has room), then
+        // **close** the channels before waiting: a closed channel ends the stream once it is drained.
+        self.end_audio();
+        let _ = self.frame_sender.try_send(None, || true);
 
         // Close channels early in Drop too (same trick as in finish()).
         let (dummy_tx_v, _dummy_rx_v) = FrameSender::channel(None);
