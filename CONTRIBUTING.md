@@ -43,7 +43,7 @@ bun run tauri dev
 - **Keep it minimal:** reuse existing code, no speculative abstractions, no unrelated refactors in the same PR.
 - **Text** shown to users goes into `src/lib/i18n.ts` in both English and Vietnamese. If you don't speak Vietnamese, add the English text and say so in the PR; we'll translate it.
 - **Config:** a new field in `config.rs` needs a `#[serde(default)]` (or a default function) so existing `config.toml` files keep loading.
-- **Commits** follow [Conventional Commits](https://www.conventionalcommits.org): `type(scope): Summary`, e.g. `fix(toast): Keep the preview on the cursor's monitor` or `feat(draw): Add a blur tool`. Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `chore`.
+- **Commits** follow [Conventional Commits](https://www.conventionalcommits.org): `type(scope): Summary`, e.g. `fix(toast): Keep the preview on the cursor's monitor` or `feat(draw): Add a blur tool`. Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `chore`. PRs are squash-merged and the PR title becomes the commit message on `master`, so give the PR a title in the same format.
 - **Don't** bump versions or edit `CHANGELOG.md`; that happens at release time.
 
 ### Checks
