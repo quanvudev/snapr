@@ -14,3 +14,4 @@ pub const RECORD_PANEL: &str = "record-panel";
 pub const RECORD_LEVEL: &str = "record-level";
 pub const ACCELERATION_PROGRESS: &str = "acceleration-progress";
 pub const ACCELERATION_DONE: &str = "acceleration-done";
+pub const SPLASH_DONE: &str = "splash-done";

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type HotkeyMode } from "@/lib/api";
 import { keyCombo, mouseCombo, normalize, RING_SLOT } from "@/lib/hotkeys";
 
-export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void, hideOnEscape: boolean, mode: HotkeyMode) {
+export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void, mode: HotkeyMode) {
   const [recording, setRecording] = useState<number | null>(null);
   const first = useRef(true);
   const active = useRef(false);
@@ -30,7 +30,7 @@ export function useHotkeyRecorder(onRecord: (slot: number, key: string) => void,
         const key = normalize(e.code);
         setRecording(null);
         onRecord(recording, mode === "manual" ? keyCombo(e, key) : key);
-      } else if (e.code === "Escape" && hideOnEscape) {
+      } else if (e.code === "Escape") {
         api.hide();
       }
     };

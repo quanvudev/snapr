@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
+import { useTaskError } from "./use-task-error";
 import { api, type BulkFailure, type GalleryItem, type Recognized, type Track } from "@/lib/api";
 import { fileName, groupBy, isMp4, isViewable, matches, type Filter, type Period } from "@/lib/gallery";
 import {
@@ -13,7 +14,6 @@ import {
   saveGifPreset,
   saveSubtitlePreset,
   subtitleSpec,
-  taskError,
   transcribeSpec,
   translateSpec,
   type CompressChoice,
@@ -68,6 +68,7 @@ export function useGallery() {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [transcriptTrack, setTranscriptTrack] = useState<Track>("original");
 
+  const reportTask = useTaskError();
   const report = useCallback(
     (e: unknown) => toast.add({ type: "error", title: title.current, description: String(e) }),
     [],
@@ -249,7 +250,7 @@ export function useGallery() {
   const exportSubtitle = (item: GalleryItem, preset: SubtitlePreset, track: Track) => {
     setSubtitleTarget(null);
     saveSubtitlePreset(preset);
-    api.queueAdd(subtitleSpec(item.path, preset, track)).catch((e) => report(taskError(strings.current, e)));
+    api.queueAdd(subtitleSpec(item.path, preset, track)).catch((e) => reportTask(e));
   };
 
   const compressFailed = (e: unknown) => {
@@ -281,7 +282,7 @@ export function useGallery() {
     if (!targets.length) return;
     (async () => {
       for (const item of targets) await api.queueAdd(transcribeSpec(item.path));
-    })().catch((e) => report(taskError(strings.current, e)));
+    })().catch((e) => reportTask(e));
   };
 
   const deleteSelected = () => {
@@ -402,7 +403,7 @@ export function useGallery() {
             if (!cue) throw "NO_TRANSCRIPT";
             setSubtitleTarget({ item, ms: cue.start_ms, text: cue.text, track, tracks: subtitleTracks(item) });
           })
-          .catch((e) => report(taskError(strings.current, e)));
+          .catch((e) => reportTask(e));
       },
       exportSubtitle,
       compressSelected,
@@ -410,7 +411,7 @@ export function useGallery() {
       translate: (item: GalleryItem, target: string | null = null) => {
         setTranslateTarget(null);
         if (target) setTranscriptTrack(target);
-        api.queueAdd(translateSpec(item.path, target)).catch((e) => report(taskError(strings.current, e)));
+        api.queueAdd(translateSpec(item.path, target)).catch((e) => reportTask(e));
       },
       openTranslate: (item: GalleryItem) => setTranslateTarget(item),
       transcribeSelected: () => transcribeAll(videos),

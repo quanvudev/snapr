@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
+import { useTaskError } from "./use-task-error";
 import { api, type HistoryItem, type QueueItem } from "@/lib/api";
-import { taskError } from "@/lib/queue";
 
 export function useQueue() {
   const { t } = useSettingsContext();
   const strings = useRef(t);
+  const reportTask = useTaskError();
   strings.current = t;
   const [items, setItems] = useState<QueueItem[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -67,11 +68,7 @@ export function useQueue() {
       api.onSettingsOpen(load),
       api.onQueueEnded((ended) => {
         if (ended.error) {
-          toast.add({
-            type: "error",
-            title: strings.current.queueFailed,
-            description: `${ended.name}: ${taskError(strings.current, ended.error)}`,
-          });
+          reportTask(ended.error, strings.current.queueFailed, `${ended.name}: `);
           return;
         }
         succeeded.current += 1;
@@ -81,7 +78,7 @@ export function useQueue() {
     return () => {
       subs.forEach((s) => s.then((f) => f()));
     };
-  }, [report, settle, follow]);
+  }, [report, settle, follow, reportTask]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -97,9 +94,7 @@ export function useQueue() {
     cancel: (id: number) => api.queueCancel(id).catch(report),
     cancelAll: () => api.queueCancelAll().catch(report),
     retry: (id: number) =>
-      api.queueRetry(id).catch((e) =>
-        toast.add({ type: "error", title: strings.current.queueFailed, description: taskError(strings.current, e) }),
-      ),
+      api.queueRetry(id).catch((e) => reportTask(e, strings.current.queueFailed)),
     reveal: (path: string) => api.galleryReveal(path).catch(report),
     clear: () => api.queueHistoryClear().catch(report),
   };

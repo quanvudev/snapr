@@ -9,7 +9,7 @@ import { useUpdate } from "./use-update";
 import { useTranslate } from "./use-translate";
 import { useWhisper } from "./use-whisper";
 
-export type View = "splash" | "setup" | "settings";
+export type View = "setup" | "settings";
 export type SectionId = "gallery" | "general" | "capture" | "text" | "recording" | "hotkeys" | "ring" | "models" | "about";
 
 const LEGACY_SECTIONS: Record<string, SectionId> = { settings: "general" };
@@ -26,7 +26,6 @@ export function useSettings() {
   const [section, setSection] = useState<SectionId>("general");
   const [version, setVersion] = useState("");
   const firstLoad = useRef(true);
-  const timer = useRef<number>(0);
 
   const { recording, setRecording } = useHotkeyRecorder((slot, key) => {
     if (!cfg) return;
@@ -36,7 +35,7 @@ export function useSettings() {
         ? { ...hotkeys, [SLOTS[slot]]: key }
         : { ...hotkeys, manual: hotkeys.manual.map((c, i) => (i === slot ? key : c)) };
     update({ ...cfg, hotkeys: next });
-  }, view !== "splash", cfg?.hotkeys.mode ?? "fixed");
+  }, cfg?.hotkeys.mode ?? "fixed");
 
   const load = useCallback(
     async (fromEvent: boolean, openSection?: string) => {
@@ -49,16 +48,13 @@ export function useSettings() {
       setRecording(null);
       setFailed(false);
       if (fromEvent) {
-        clearTimeout(timer.current);
         setSection(LEGACY_SECTIONS[openSection ?? ""] ?? ((openSection as SectionId) || "general"));
         setView(s.first_run ? "setup" : "settings");
       } else if (firstLoad.current) {
         firstLoad.current = false;
         if (s.first_run) {
-          setView("splash");
-          timer.current = window.setTimeout(() => {
-            api.openSettings().then(() => setView("setup"));
-          }, 1000);
+          setView("setup");
+          api.showSetup();
         } else {
           setView("settings");
         }
@@ -160,7 +156,7 @@ export function useSettings() {
     if (!cfg) return;
     try {
       await api.save(cfg, autostart);
-      api.hide();
+      await api.finishSetup();
     } catch {
       setFailed(true);
     }

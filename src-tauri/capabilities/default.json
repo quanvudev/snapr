@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "panel",
-    "camera"
+    "camera",
+    "splash"
   ],
   "permissions": [
     "core:default",

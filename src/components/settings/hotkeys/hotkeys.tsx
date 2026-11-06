@@ -6,14 +6,13 @@ import { SettingsCard } from "../settings-card";
 import { HotkeyRow } from "./hotkey-row";
 import { ModeRow } from "./mode-row";
 import { ModifiersRow } from "./modifiers-row";
-import { RingSwitchRow } from "./ring-switch-row";
 
 type RowGroup = (props: { children: React.ReactNode }) => React.ReactNode;
 
 const PlainGroup: RowGroup = ({ children }) => <ItemGroup className="gap-3">{children}</ItemGroup>;
 
 export function HotkeyRows({ Group = PlainGroup }: { Group?: RowGroup }) {
-  const { cfg, t, view } = useSettingsContext();
+  const { cfg, t } = useSettingsContext();
   return (
     <>
       <Group>
@@ -24,7 +23,6 @@ export function HotkeyRows({ Group = PlainGroup }: { Group?: RowGroup }) {
         <div key={g.title} className="flex flex-col gap-2">
           <h3 className="text-xs font-medium text-muted-foreground">{t[g.title]}</h3>
           <Group>
-            {g.title === "groupTools" && view !== "settings" && <RingSwitchRow />}
             {g.slots
               .filter((s) => s !== "ring" || cfg.ring.enabled)
               .map((s) => (

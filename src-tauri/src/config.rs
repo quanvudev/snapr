@@ -312,7 +312,7 @@ impl Default for Hotkeys {
     fn default() -> Self {
         Self {
             mode: HotkeyMode::Fixed,
-            modifiers: "Win+Shift".into(),
+            modifiers: "Ctrl+Shift".into(),
             fullscreen: "1".into(),
             window: "2".into(),
             area: "3".into(),

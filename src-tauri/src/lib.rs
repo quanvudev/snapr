@@ -140,7 +140,7 @@ pub fn run() {
             hotkeys::apply(&handle);
             update::start(&handle);
             if first_run {
-                settings::show_splash(&handle);
+                settings::open_splash(&handle);
             }
             Ok(())
         })
@@ -181,6 +181,9 @@ pub fn run() {
             settings::open_folder,
             settings::open_config_file,
             settings::open_settings,
+            settings::show_setup,
+            settings::finish_setup,
+            settings::setup_fit,
             settings::open_language_settings,
             settings::ring_icon,
             settings::list_apps,

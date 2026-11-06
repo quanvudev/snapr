@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
+import { useTaskError } from "./use-task-error";
 import { api, type GalleryItem, type QueueItem, type Segment, type Track } from "@/lib/api";
 import { MS_PER_SECOND, percent, taskError, trackDetail, trackKind, trackSpec } from "@/lib/queue";
 
@@ -36,11 +36,8 @@ export function useTranscript(item: GalleryItem, track: Track, video: HTMLVideoE
   const [active, setActive] = useState(-1);
   const unknownLanguage = item.language == null;
 
-  const report = useCallback(
-    (e: unknown) =>
-      toast.add({ type: "error", title: strings.current.galleryFailed, description: taskError(strings.current, e) }),
-    [],
-  );
+  const reportTask = useTaskError();
+  const report = useCallback((e: unknown) => reportTask(e), [reportTask]);
 
   const clearError = useCallback(
     () =>

@@ -1,1 +1,1 @@
-export { Splash } from "./splash";
+export { SplashApp } from "./splash-app";

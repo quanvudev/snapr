@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { CameraApp } from "./components/camera";
 import { PanelApp } from "./components/panel";
+import { SplashApp } from "./components/splash";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "./components/ui/toast";
 
@@ -19,7 +20,7 @@ if (import.meta.env.PROD) {
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <TooltipProvider>
-      {VIEW === "panel" ? <PanelApp /> : VIEW === "camera" ? <CameraApp /> : <App />}
+      {VIEW === "panel" ? <PanelApp /> : VIEW === "camera" ? <CameraApp /> : VIEW === "splash" ? <SplashApp /> : <App />}
     </TooltipProvider>
     <Toaster />
   </React.StrictMode>,

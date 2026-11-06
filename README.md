@@ -71,21 +71,21 @@ scoop install snapr
 
 ### First run
 
-Snapr opens a short setup the first time: pick where captures are saved (`Pictures\snapr` by default) and check the hotkeys. Screenshots and GIFs go to its `Images` folder, recordings and their `.srt` subtitles to `Videos`. After that it lives in the system tray. Click the tray icon for its menu: Gallery, Settings, Open folder and the recording controls; closing the settings window only hides it.
+Snapr greets you with a short setup the first time: choose the modifier keys for the hotkeys, your language and whether it starts with Windows, then press Start (or Enter). A notification confirms it is running in the tray. Everything else, including the output folder (`Pictures\snapr` by default), keeps its default and can be changed later in Settings. Screenshots and GIFs go to its `Images` folder, recordings and their `.srt` subtitles to `Videos`. After that it lives in the system tray. Click the tray icon for its menu: Gallery, Settings, Open folder and the recording controls; closing the settings window only hides it.
 
 ### Hotkeys
 
 | Action | Default |
 | --- | --- |
-| Full screen (monitor under the cursor) | `Win+Shift+1` |
-| Window | `Win+Shift+2` |
-| Area | `Win+Shift+3` |
-| Text capture | `Win+Shift+4` |
-| Recording panel / stop recording | `Win+Shift+5` |
-| Area with annotations | `Win+Shift+6` |
+| Full screen (monitor under the cursor) | `Ctrl+Shift+1` |
+| Window | `Ctrl+Shift+2` |
+| Area | `Ctrl+Shift+3` |
+| Text capture | `Ctrl+Shift+4` |
+| Recording panel / stop recording | `Ctrl+Shift+5` |
+| Area with annotations | `Ctrl+Shift+6` |
 | Action Ring | not set |
 
-Change them in Settings → Hotkeys. By default every slot shares one modifier prefix (`Win+Shift`) and a key; switch to manual mode to give each action its own full combination. The Action Ring can also be bound to a mouse button (middle, back or forward).
+Change them in Settings → Hotkeys. By default every slot shares one modifier prefix (`Ctrl+Shift`) and a key; switch to manual mode to give each action its own full combination. The Action Ring can also be bound to a mouse button (middle, back or forward).
 
 ### Taking screenshots
 

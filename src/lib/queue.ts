@@ -24,6 +24,13 @@ const TASK_ERRORS: Record<string, keyof Strings> = {
   LICENSE_REQUIRED: "licenseRequired",
 };
 
+const MODEL_ERRORS = ["MODEL_MISSING", "LICENSE_REQUIRED"];
+
+export function needsModels(error: unknown) {
+  const message = String(error);
+  return MODEL_ERRORS.some((code) => message.includes(code));
+}
+
 export function taskError(t: Strings, error: unknown) {
   const message = String(error);
   const key = Object.keys(TASK_ERRORS).find((code) => message.includes(code));

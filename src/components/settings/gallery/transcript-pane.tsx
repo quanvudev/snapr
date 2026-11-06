@@ -28,7 +28,7 @@ type Props = {
 };
 
 export function TranscriptPane({ item, track: chosen, onTrack, onTranslate, video, onClose, onExport }: Props) {
-  const { cfg, t, translator } = useSettingsContext();
+  const { cfg, t, translator, setSection } = useSettingsContext();
   const hymt = translator.status.ready;
   const jobs = useTranslationJobs(item.path);
   const [seen, setSeen] = useState<{ path: string; targets: string[] }>({ path: item.path, targets: [] });
@@ -141,9 +141,16 @@ export function TranscriptPane({ item, track: chosen, onTrack, onTranslate, vide
           ) : error ? (
             <div className="space-y-2 p-2">
               <p className="text-destructive">{t.transcriptFailed.replace("{error}", error)}</p>
-              <Button size="sm" variant="outline" onClick={create}>
-                {t.paddleRetry}
-              </Button>
+              <div className="flex gap-2">
+                {(error === t.modelMissing || error === t.licenseRequired) && (
+                  <Button size="sm" onClick={() => setSection("models")}>
+                    {t.openModels}
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={create}>
+                  {t.paddleRetry}
+                </Button>
+              </div>
             </div>
           ) : segments === null ? (
             <div className="flex justify-center p-2">

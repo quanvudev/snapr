@@ -5,8 +5,12 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
-use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
+use tauri::window::{Effect, EffectsBuilder};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx};
@@ -23,6 +27,16 @@ const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_VALUE: &str = "snapr";
 const RING_ICON_SIZE: i32 = 32;
 const APPS_FOLDER_PREFIX: &str = "shell:AppsFolder\\";
+const SPLASH: &str = "splash";
+const SPLASH_SIZE: f64 = 240.0;
+const SPLASH_MIN: Duration = Duration::from_millis(800);
+const SPLASH_FADE: Duration = Duration::from_millis(200);
+const SETUP_WIDTH: f64 = 520.0;
+const SETTINGS_SIZE: (f64, f64) = (1366.0, 768.0);
+const AREA_SLOT: usize = 2;
+
+static SPLASH_SHOWN: OnceLock<Instant> = OnceLock::new();
+static SETUP_HEIGHT: AtomicU32 = AtomicU32::new(600);
 
 #[derive(Serialize)]
 pub struct Loaded {
@@ -278,30 +292,99 @@ pub fn open_language_settings() {
     let _ = std::process::Command::new("explorer").arg("ms-settings:regionlanguage").spawn();
 }
 
-pub(crate) fn show_splash(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_size(LogicalSize::new(480.0, 300.0));
-        let _ = w.center();
-        let _ = w.show();
-        let _ = w.set_focus();
+pub(crate) fn open_splash(app: &AppHandle) {
+    let built = WebviewWindowBuilder::new(app, SPLASH, WebviewUrl::App("index.html?view=splash".into()))
+        .title("Snapr")
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .skip_taskbar(true)
+        .resizable(false)
+        .inner_size(SPLASH_SIZE, SPLASH_SIZE)
+        .center()
+        .build();
+    if built.is_ok() {
+        let _ = SPLASH_SHOWN.set(Instant::now());
     }
+}
+
+fn show_window(app: &AppHandle, (width, height): (f64, f64), effect: Effect) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let _ = w.set_effects(EffectsBuilder::new().effect(effect).build());
+    let (max_w, max_h) = match w.current_monitor() {
+        Ok(Some(m)) => {
+            let area = m.work_area().size.to_logical::<f64>(m.scale_factor());
+            (area.width, area.height)
+        }
+        _ => (width, height),
+    };
+    let _ = w.set_size(LogicalSize::new(max_w.min(width), max_h.min(height)));
+    let _ = w.center();
+    let _ = w.show();
+    let _ = w.set_focus();
 }
 
 pub(crate) fn show_settings(app: &AppHandle, section: &str) {
     if ocr_available(app) != app.state::<State>().ocr.load(Ordering::Relaxed) {
         apply(app);
     }
-    let Some(w) = app.get_webview_window("main") else { return };
-    let (max_w, max_h) = match w.current_monitor() {
-        Ok(Some(m)) => {
-            let area = m.work_area().size.to_logical::<f64>(m.scale_factor());
-            (area.width, area.height)
-        }
-        _ => (1366.0, 768.0),
-    };
-    let _ = w.set_size(LogicalSize::new(max_w.min(1366.0), max_h.min(768.0)));
-    let _ = w.center();
-    let _ = w.show();
-    let _ = w.set_focus();
+    if app.state::<State>().path.exists() {
+        show_window(app, SETTINGS_SIZE, Effect::Mica);
+    } else {
+        show_window(app, setup_size(), Effect::Acrylic);
+    }
     let _ = app.emit_to("main", events::SETTINGS_OPEN, section);
+}
+
+async fn pause(time: Duration) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(time)).await;
+}
+
+#[tauri::command]
+pub async fn show_setup(app: AppHandle) {
+    if let Some(splash) = app.get_webview_window(SPLASH) {
+        if let Some(shown) = SPLASH_SHOWN.get() {
+            let left = SPLASH_MIN.saturating_sub(shown.elapsed());
+            pause(left).await;
+        }
+        let _ = app.emit_to(SPLASH, events::SPLASH_DONE, ());
+        pause(SPLASH_FADE).await;
+        let _ = splash.destroy();
+    }
+    show_window(&app, setup_size(), Effect::Acrylic);
+}
+
+fn setup_size() -> (f64, f64) {
+    (SETUP_WIDTH, SETUP_HEIGHT.load(Ordering::Relaxed) as f64)
+}
+
+#[tauri::command]
+pub fn setup_fit(app: AppHandle, height: f64) {
+    if height <= 0.0 || app.state::<State>().path.exists() {
+        return;
+    }
+    SETUP_HEIGHT.store(height.ceil() as u32, Ordering::Relaxed);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_size(LogicalSize::new(SETUP_WIDTH, height.ceil()));
+    }
+}
+
+#[tauri::command]
+pub fn finish_setup(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    apply(&app);
+    let (vi, area) = {
+        let state = app.state::<State>();
+        let cfg = state.cfg.read().unwrap();
+        (cfg.language == "vi", cfg.hotkeys.combos()[AREA_SLOT].clone())
+    };
+    let body = match (vi, area.is_empty()) {
+        (true, false) => format!("Snapr đang chạy ở khay hệ thống. Nhấn {area} để chụp vùng."),
+        (true, true) => "Snapr đang chạy ở khay hệ thống.".to_string(),
+        (false, false) => format!("Snapr is running in the system tray. Press {area} to capture an area."),
+        (false, true) => "Snapr is running in the system tray.".to_string(),
+    };
+    let _ = app.notification().builder().title("Snapr").body(body).show();
 }
