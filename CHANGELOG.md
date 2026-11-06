@@ -2,6 +2,13 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [2.3.0] - 2026-11-06
+
+### Added
+- Blur the room behind you in the webcam bubble while recording: open the camera menu of the recording panel and choose Blur background. You stay sharp, the background is blurred in the recording, and it runs entirely on your computer with nothing to download.
+- Replace the background with your own photo instead: pick an image in Settings → Recording → Camera, then choose Image in the camera menu. The photo fills the bubble and is shown the right way round.
+- Settings → Recording has a new Camera card to choose Off, Blur or Image, tune the blur strength and how smooth the outline is, and for photos how tightly the outline fits, how soft it is and how much of the photo's colour blends into it. A round live preview shows the result while you drag the sliders; the camera turns on only when you press Preview and turns off when you leave the window.
+
 ## [2.2.0] - 2026-11-06
 
 ### Added
