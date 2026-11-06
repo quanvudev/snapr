@@ -34,6 +34,7 @@ mod transcript;
 mod translate;
 mod trim;
 mod update;
+mod upscale;
 mod video;
 mod whisper;
 
@@ -79,6 +80,7 @@ pub struct State {
     whisper_download: Mutex<Option<whisper::Download>>,
     translate_download: Mutex<Option<translate::Download>>,
     cutout_download: Mutex<Option<cutout::Download>>,
+    upscale_download: Mutex<Option<upscale::Download>>,
     runtime_download: Mutex<Option<onnx::Download>>,
     counting: AtomicBool,
     discard: AtomicBool,
@@ -128,6 +130,7 @@ pub fn run() {
                 whisper_download: Mutex::new(None),
                 translate_download: Mutex::new(None),
                 cutout_download: Mutex::new(None),
+                upscale_download: Mutex::new(None),
                 runtime_download: Mutex::new(None),
                 counting: AtomicBool::new(false),
                 discard: AtomicBool::new(false),
@@ -224,6 +227,10 @@ pub fn run() {
             cutout::cutout_download,
             cutout::cutout_cancel,
             cutout::cutout_delete,
+            upscale::upscale_status,
+            upscale::upscale_download,
+            upscale::upscale_cancel,
+            upscale::upscale_delete,
             whisper::whisper_cancel,
             whisper::whisper_delete,
             transcript::transcript_detect,

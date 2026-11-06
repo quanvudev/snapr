@@ -3,11 +3,12 @@ import { SectionHeading } from "../section-heading";
 import { AccelerationCard } from "./acceleration-card";
 import { SettingsCard } from "../settings-card";
 import { CutoutCard } from "./cutout-card";
+import { UpscaleCard } from "./upscale-card";
 import { DownloadedModels } from "./downloaded-models";
 import { ModelCard } from "./model-card";
 import { ModelUsageRow } from "./model-usage-row";
 import { paddleLabels } from "./paddle-labels";
-import { useCutoutStore, useRuntimeStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
+import { useCutoutStore, useRuntimeStore, useUpscaleStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
 import { TranslateCard, useLicensePrompt } from "./translate-card";
 import { TranscriptLanguageRow } from "./transcript-language-row";
 
@@ -18,6 +19,7 @@ export function Models() {
   const license = useLicensePrompt();
   const translate = useTranslateStore(license.ask);
   const cutout = useCutoutStore();
+  const upscale = useUpscaleStore();
   const whisperGpu = useWhisperGpuStore();
   const runtimes = useRuntimeStore();
   const { descs } = paddleLabels(t);
@@ -54,7 +56,9 @@ export function Models() {
       <TranslateCard store={translate} asking={license.asking} onCloseLicense={license.close} />
       <SectionHeading>{t.modelsCutout}</SectionHeading>
       <CutoutCard store={cutout} />
-      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, cutout, runtimes]} />
+      <SectionHeading>{t.modelsUpscale}</SectionHeading>
+      <UpscaleCard store={upscale} />
+      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, cutout, upscale, runtimes]} />
     </>
   );
 }

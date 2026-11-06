@@ -2,6 +2,14 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [2.4.0] - 2026-11-06
+
+### Added
+- Upscale images: right-click a photo in the gallery, use the AI tools button in the viewer, or select several photos and use the bar at the bottom, then pick Upscale ×2 or ×4. Snapr saves a sharper, larger copy (`<name>_x2.png` / `<name>_x4.png`) in the `Images` folder, in the background queue, and never changes the original. It is tuned for screenshots, so text, including Vietnamese diacritics, stays crisp. It uses the Real-ESRGAN General x4v3 model (about 4.6 MB, BSD-3-Clause), downloaded from Settings → AI models, and runs on your graphics card with DirectML or CUDA (well under a second for a typical screenshot). Results larger than 8192 px on a side are refused.
+
+### Changed
+- Remove background and Upscale are now grouped under one AI tools menu in the gallery right-click menu, the viewer and the selection bar.
+
 ## [2.3.0] - 2026-11-06
 
 ### Added

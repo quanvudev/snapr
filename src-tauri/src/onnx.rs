@@ -183,6 +183,7 @@ pub enum Workload {
     Whisper,
     Translate,
     Cutout,
+    Upscale,
 }
 
 static LOADED: OnceLock<Result<Loaded, String>> = OnceLock::new();
@@ -311,7 +312,7 @@ pub fn gpu_for(workload: Workload) -> Option<(Runtime, i32)> {
 }
 
 fn on_card(runtime: Runtime, workload: Workload) -> bool {
-    matches!((runtime, workload), (Runtime::Cuda, _) | (Runtime::DirectMl, Workload::Ocr | Workload::Cutout))
+    matches!((runtime, workload), (Runtime::Cuda, _) | (Runtime::DirectMl, Workload::Ocr | Workload::Cutout | Workload::Upscale))
 }
 
 pub fn retry_on_cpu<T>(workload: Workload, mut run: impl FnMut() -> Result<T, String>) -> Result<T, String> {
@@ -330,7 +331,7 @@ pub fn retry_on_cpu<T>(workload: Workload, mut run: impl FnMut() -> Result<T, St
 
 fn cpu_session(env: &Environment, path: &Path, workload: Workload) -> Result<Session, String> {
     let builder = Session::builder(env).map_err(|e| e.to_string())?;
-    let mut builder = if matches!(workload, Workload::Ocr | Workload::Cutout) {
+    let mut builder = if matches!(workload, Workload::Ocr | Workload::Cutout | Workload::Upscale) {
         let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
         builder
             .with_intra_threads(threads)
@@ -472,6 +473,7 @@ pub fn release(app: &AppHandle, busy: bool) {
         && !crate::whisper::installed(app)
         && !crate::translate::installed(app)
         && !crate::cutout::installed(app)
+        && !crate::upscale::installed(app)
     {
         let _ = fs::remove_file(runtime_path(app));
     }
@@ -716,11 +718,11 @@ mod tests {
 
     #[test]
     fn places_workloads() {
-        let all = [Workload::Ocr, Workload::Whisper, Workload::Translate, Workload::Cutout];
+        let all = [Workload::Ocr, Workload::Whisper, Workload::Translate, Workload::Cutout, Workload::Upscale];
         assert!(all.iter().all(|&w| on_card(Runtime::Cuda, w)));
         assert!(all.iter().all(|&w| !on_card(Runtime::Cpu, w)));
         let dml: Vec<Workload> = all.into_iter().filter(|&w| on_card(Runtime::DirectMl, w)).collect();
-        assert_eq!(dml, [Workload::Ocr, Workload::Cutout]);
+        assert_eq!(dml, [Workload::Ocr, Workload::Cutout, Workload::Upscale]);
     }
 
     #[test]

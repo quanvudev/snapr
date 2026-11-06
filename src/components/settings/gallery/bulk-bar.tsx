@@ -1,6 +1,9 @@
-import { Captions, Clapperboard, Copy, Eraser, FileDown, Pin, Trash2, X } from "lucide-react";
+import { Captions, Clapperboard, Copy, Eraser, FileDown, ImageUpscale, Pin, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useSettingsContext } from "@/components/settings-provider";
+import type { UpscaleScale } from "@/lib/api";
+import { UPSCALE_SCALES } from "@/lib/upscale";
 
 type Props = {
   count: number;
@@ -14,10 +17,11 @@ type Props = {
   onCompress: () => void;
   onTranscribe: () => void;
   onRemoveBackground: () => void;
+  onUpscale: (scale: UpscaleScale) => void;
   onCancel: () => void;
 };
 
-export function BulkBar({ count, photos, videos, onSelectAll, onDelete, onCopy, onPin, onExportGif, onCompress, onTranscribe, onRemoveBackground, onCancel }: Props) {
+export function BulkBar({ count, photos, videos, onSelectAll, onDelete, onCopy, onPin, onExportGif, onCompress, onTranscribe, onRemoveBackground, onUpscale, onCancel }: Props) {
   const { t } = useSettingsContext();
   return (
     <div className="absolute inset-x-0 bottom-4 z-30 mx-auto flex w-fit max-w-[calc(100%-3rem)] flex-wrap items-center gap-2 rounded-xl border bg-popover px-3 py-2 text-popover-foreground shadow-lg">
@@ -46,10 +50,25 @@ export function BulkBar({ count, photos, videos, onSelectAll, onDelete, onCopy, 
           <Captions />
           {t.transcribe}
         </Button>
-        <Button variant="outline" size="sm" disabled={!photos} onClick={onRemoveBackground}>
-          <Eraser />
-          {t.removeBackground}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={!photos} />}>
+            <Sparkles />
+            {t.aiTools}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" className="w-auto">
+            <DropdownMenuItem onClick={onRemoveBackground}>
+              <Eraser />
+              {t.removeBackground}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {UPSCALE_SCALES.map((scale) => (
+              <DropdownMenuItem key={scale} onClick={() => onUpscale(scale)}>
+                <ImageUpscale />
+                {t.upscale} ×{scale}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button variant="destructive" size="sm" disabled={count === 0} onClick={onDelete}>
           <Trash2 />
           {t.bulkDelete}

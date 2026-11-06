@@ -1,8 +1,10 @@
-import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { Eraser, ImageUpscale, Sparkles } from "lucide-react";
+import { ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger } from "@/components/ui/context-menu";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions } from "@/hooks/use-gallery";
 import type { GalleryItem } from "@/lib/api";
 import { canTranslate, isMp4 } from "@/lib/gallery";
+import { UPSCALE_SCALES } from "@/lib/upscale";
 
 export function ItemMenu({ item, actions }: { item: GalleryItem; actions: GalleryActions }) {
   const { t, ocr, translator } = useSettingsContext();
@@ -15,7 +17,25 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
         <>
           <ContextMenuItem onClick={() => actions.pin(item)}>{t.pinImage}</ContextMenuItem>
           <ContextMenuItem onClick={() => actions.copy(item)}>{t.copyImage}</ContextMenuItem>
-          <ContextMenuItem onClick={() => actions.removeBackground(item)}>{t.removeBackground}</ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Sparkles />
+              {t.aiTools}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onClick={() => actions.removeBackground(item)}>
+                <Eraser />
+                {t.removeBackground}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              {UPSCALE_SCALES.map((scale) => (
+                <ContextMenuItem key={scale} onClick={() => actions.upscale(item, scale)}>
+                  <ImageUpscale />
+                  {t.upscale} ×{scale}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
           {ocr && <ContextMenuItem onClick={() => actions.extractText(item)}>{t.extractText}</ContextMenuItem>}
         </>
       )}
