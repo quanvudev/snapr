@@ -162,7 +162,7 @@ Text capture works out of the box with Windows OCR. PaddleOCR, Whisper, HY-MT1.5
 | Runtime | Download | Runs on the graphics card | Example on an RTX 5060 Ti |
 |---|---|---|---|
 | CPU | included | nothing | 8-minute video, Large v3 Turbo: 121 s |
-| DirectML (any recent card) | about 25 MB | PaddleOCR (6 to 7 times faster), BEN2 | background removal: 0.3 s instead of 6 s per photo; Whisper and translation stay on the processor |
+| DirectML (any recent card) | about 25 MB | PaddleOCR (6 to 7 times faster), BEN2 | background removal: about 2.5 s instead of 8 s per photo; Whisper and translation stay on the processor |
 | CUDA (NVIDIA only) | about 1 GB | PaddleOCR, Whisper, HY-MT1.5 and BEN2 | same video: 16 s; 100 subtitle lines translated in 6.5 s instead of 45 s |
 
 With CUDA, Snapr also downloads a GPU version of the selected Whisper model (fp16, or q4f16 for Turbo). Translation now works on several subtitle lines at a time on every computer, which made it about a third faster on the processor too.

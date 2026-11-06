@@ -5,7 +5,7 @@ All notable changes to Snapr. Versions follow semantic versioning.
 ## [2.2.0] - 2026-11-06
 
 ### Added
-- Remove background: right-click a photo in the gallery, use the eraser button in the viewer, or select several photos and use the bar at the bottom. Snapr saves a copy with a transparent background (`<name>_cutout.png`) in the `Images` folder, in the background queue, and never changes the original. It uses the BEN2 Base model (about 223 MB, MIT licence), downloaded from Settings → AI models, and runs on your graphics card with DirectML or CUDA (about 0.3 s per photo instead of 6 s on the processor). It works best on photos of people, pets and objects, not on screenshots of apps.
+- Remove background: right-click a photo in the gallery, use the eraser button in the viewer, or select several photos and use the bar at the bottom. Snapr saves a copy with a transparent background (`<name>_cutout.png`) in the `Images` folder, in the background queue, and never changes the original. It uses the BEN2 Base model (about 223 MB, MIT licence), downloaded from Settings → AI models, and runs on your graphics card with DirectML or CUDA (about 2.5 s per photo instead of about 8 s on the processor). It works best on photos of people, pets and objects, not on screenshots of apps.
 - Noise suppression for the microphone while recording: fan hum, room noise and keyboard clicks are removed from your voice as you record, with almost no processor use and nothing to download. It is on by default and can be turned off in the audio menu of the recording panel; the level meter shows the cleaned sound, and system audio is never changed.
 
 ## [2.1.0] - 2026-11-06
