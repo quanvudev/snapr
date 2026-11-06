@@ -33,11 +33,19 @@ The settings window SHALL open at 1366x768 logical pixels, centered, and SHALL N
 - **THEN** the window size does not change
 
 ### Requirement: Dark blurred appearance
-The settings and splash windows SHALL use a dark theme over the native Windows blurred backdrop, independent of the system light/dark setting.
+The settings window SHALL use a dark theme over the native Windows blurred backdrop, independent of the system light/dark setting. The setup page SHALL use a frosted-glass backdrop that blurs what is behind the window, under a translucent background. The first-run splash SHALL NOT use a backdrop: it has a fully transparent background.
 
 #### Scenario: Light system theme
 - **WHEN** Windows is set to light mode
 - **THEN** the window still renders the dark theme over the blurred backdrop
+
+#### Scenario: Setup is frosted glass
+- **WHEN** the setup page is shown over other windows
+- **THEN** those windows show through it blurred
+
+#### Scenario: Splash has no backdrop
+- **WHEN** the first-run splash is visible
+- **THEN** only the logo and spinner are drawn and the desktop shows through everywhere else
 
 ### Requirement: Settings are grouped in a sidebar
 The settings window SHALL show a left sidebar listing the groups Gallery, General, Capture, Preview, Recording, Hotkeys and About, and a right pane showing the selected group. General SHALL be selected when the window is opened from Settings…, and Gallery when it is opened from the tray Gallery item.

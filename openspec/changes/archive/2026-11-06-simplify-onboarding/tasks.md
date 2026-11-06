@@ -57,7 +57,7 @@
   - send a `tauri-plugin-notification` notification from `State.cfg`. In en: "Snapr is running in the system tray. Press {area} to capture an area." In vi: "Snapr đang chạy ở khay hệ thống. Nhấn {area} để chụp vùng." `{area}` is `combos()[2]`.
 
   Register the command, add `api.finishSetup`, and make `start` in `use-settings.ts` call it instead of `api.hide()`. Verify that pressing Start writes `config.toml`, hides the window and shows the notification in the chosen language with the current modifiers.
-- [ ] 4.2 Verify that closing setup with X or Escape shows no notification and writes no `config.toml`.
+- [x] 4.2 Verify that closing setup with X or Escape shows no notification and writes no `config.toml`.
 
 ## 5. Docs and integration
 
@@ -68,7 +68,7 @@
   - the `main` window description of "three views", which becomes settings and setup only.
 
   Verify no remaining mention of `show_splash` or the 480x300 splash view.
-- [ ] 5.2 Run `cargo clippy` and `bunx tsc --noEmit`, then do a full first-run pass with `bun run tauri dev` and `config.toml` removed: splash, setup, change the modifiers and language, Start, notification, hotkeys work. Then do a second launch, which goes straight to the tray.
+- [x] 5.2 Run `cargo clippy` and `bunx tsc --noEmit`, then do a full first-run pass with `bun run tauri dev` and `config.toml` removed: splash, setup, change the modifiers and language, Start, notification, hotkeys work. Then do a second launch, which goes straight to the tray.
 
 ## Workflow follow-up
 
