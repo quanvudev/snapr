@@ -1,6 +1,6 @@
 [package]
 name = "snapr-v2"
-version = "2.0.0"
+version = "2.1.0"
 description = "Snapr: Windows tray screenshot and screen recording app"
 authors = ["Jun <vhquan9998@gmail.com>"]
 edition = "2024"

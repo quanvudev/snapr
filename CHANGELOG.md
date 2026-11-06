@@ -2,6 +2,19 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [2.1.0] - 2026-11-06
+
+### Added
+- A new first-run experience: Snapr's logo appears on its own over the desktop while it loads, then a short dark setup asks only for the hotkey modifier keys, your language and whether to start with Windows. It shows the four main shortcuts as you change the modifiers, warns when one is taken by another app, and starts with Enter. Everything else keeps its default and can be changed later in Settings.
+- After setup, a notification tells you Snapr is running in the system tray and which keys capture an area.
+- When a task needs an AI model that is not downloaded yet (transcription, or translation before its licence is accepted), the error now has an Open AI models button that takes you straight to the download page.
+
+### Changed
+- New installs use `Ctrl+Shift` as the default hotkey modifiers (`Ctrl+Shift+1` full screen, `Ctrl+Shift+3` area, …) instead of `Win+Shift`. Existing settings are not changed.
+
+### Fixed
+- Notification messages in the app no longer break words in the middle when they wrap.
+
 ## [2.0.0] - 2026-11-06
 
 ### Breaking
