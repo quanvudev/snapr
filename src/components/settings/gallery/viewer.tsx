@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Captions, Clapperboard, ChevronLeft, ChevronRight, Copy, ExternalLink, FileDown, FolderOpen, Pin, ScanText, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, Captions, Clapperboard, ChevronLeft, ChevronRight, Copy, Eraser, ExternalLink, FileDown, FolderOpen, Pin, ScanText, Scissors, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Separator } from "@/components/ui/separator";
@@ -122,6 +122,9 @@ export function Viewer(props: Props) {
             </Button>
             <Button variant="ghost" size="icon" title={`${t.pinImage} (P)`} onClick={() => actions.pin(item)}>
               <Pin />
+            </Button>
+            <Button variant="ghost" size="icon" title={t.removeBackground} onClick={() => actions.removeBackground(item)}>
+              <Eraser />
             </Button>
           </>
         )}

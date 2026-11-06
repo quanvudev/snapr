@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -106,6 +107,7 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
   const [mic, setMic] = useState(state.mic);
   const [camera, setCamera] = useState(state.camera);
   const [speaker, setSpeaker] = useState(state.speaker);
+  const [denoise, setDenoise] = useState(state.denoise);
   const [mode, setMode] = useState<RecordMode>(state.mode);
   const [inputs, setInputs] = useState<InputDevice[]>([]);
   const [outputs, setOutputs] = useState<InputDevice[]>([]);
@@ -156,8 +158,8 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
       first.current = false;
       return;
     }
-    api.recordSelect(mic, camera, speaker, mode);
-  }, [mic, camera, speaker, mode]);
+    api.recordSelect(mic, camera, speaker, mode, denoise);
+  }, [mic, camera, speaker, mode, denoise]);
 
   useEffect(() => {
     setFailed(false);
@@ -339,6 +341,13 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
                       </DropdownMenuRadioItem>
                     ))}
                   </DropdownMenuRadioGroup>
+                  <DropdownMenuCheckboxItem
+                    checked={denoise}
+                    disabled={mic === ""}
+                    onCheckedChange={(v) => setDenoise(v)}
+                  >
+                    {t.recDenoise}
+                  </DropdownMenuCheckboxItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>

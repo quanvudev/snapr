@@ -182,6 +182,7 @@ pub enum Workload {
     Ocr,
     Whisper,
     Translate,
+    Cutout,
 }
 
 static LOADED: OnceLock<Result<Loaded, String>> = OnceLock::new();
@@ -306,10 +307,11 @@ pub fn gpu_for(workload: Workload) -> Option<(Runtime, i32)> {
     if CPU_ONLY.get() {
         return None;
     }
-    match (loaded()?, workload) {
-        ((Runtime::Cuda, _), _) | ((Runtime::DirectMl, _), Workload::Ocr) => loaded(),
-        _ => None,
-    }
+    loaded().filter(|&(runtime, _)| on_card(runtime, workload))
+}
+
+fn on_card(runtime: Runtime, workload: Workload) -> bool {
+    matches!((runtime, workload), (Runtime::Cuda, _) | (Runtime::DirectMl, Workload::Ocr | Workload::Cutout))
 }
 
 pub fn retry_on_cpu<T>(workload: Workload, mut run: impl FnMut() -> Result<T, String>) -> Result<T, String> {
@@ -328,7 +330,7 @@ pub fn retry_on_cpu<T>(workload: Workload, mut run: impl FnMut() -> Result<T, St
 
 fn cpu_session(env: &Environment, path: &Path, workload: Workload) -> Result<Session, String> {
     let builder = Session::builder(env).map_err(|e| e.to_string())?;
-    let mut builder = if workload == Workload::Ocr {
+    let mut builder = if matches!(workload, Workload::Ocr | Workload::Cutout) {
         let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
         builder
             .with_intra_threads(threads)
@@ -465,7 +467,12 @@ pub fn ensure(app: &AppHandle, fetch: &mut Fetch) -> Result<(), String> {
 }
 
 pub fn release(app: &AppHandle, busy: bool) {
-    if !busy && !paddle::installed(app) && !crate::whisper::installed(app) && !crate::translate::installed(app) {
+    if !busy
+        && !paddle::installed(app)
+        && !crate::whisper::installed(app)
+        && !crate::translate::installed(app)
+        && !crate::cutout::installed(app)
+    {
         let _ = fs::remove_file(runtime_path(app));
     }
 }
@@ -705,6 +712,15 @@ mod tests {
         assert_eq!(resolve(Acceleration::Cuda, Some(&amd), all), Runtime::Cpu);
         assert_eq!(resolve(Acceleration::Cpu, Some(&nvidia), all), Runtime::Cpu);
         assert_eq!(resolve(Acceleration::DirectMl, Some(&nvidia), |_| false), Runtime::Cpu);
+    }
+
+    #[test]
+    fn places_workloads() {
+        let all = [Workload::Ocr, Workload::Whisper, Workload::Translate, Workload::Cutout];
+        assert!(all.iter().all(|&w| on_card(Runtime::Cuda, w)));
+        assert!(all.iter().all(|&w| !on_card(Runtime::Cpu, w)));
+        let dml: Vec<Workload> = all.into_iter().filter(|&w| on_card(Runtime::DirectMl, w)).collect();
+        assert_eq!(dml, [Workload::Ocr, Workload::Cutout]);
     }
 
     #[test]

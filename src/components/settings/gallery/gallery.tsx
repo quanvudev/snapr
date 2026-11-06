@@ -217,6 +217,7 @@ export function Gallery() {
               onExportGif={g.actions.exportGifSelected}
               onCompress={g.actions.compressSelected}
               onTranscribe={g.actions.transcribeSelected}
+              onRemoveBackground={g.actions.removeBackgroundSelected}
               onCancel={g.clearSelection}
             />
           )}

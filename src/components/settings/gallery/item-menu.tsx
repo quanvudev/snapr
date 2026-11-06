@@ -15,6 +15,7 @@ export function ItemMenu({ item, actions }: { item: GalleryItem; actions: Galler
         <>
           <ContextMenuItem onClick={() => actions.pin(item)}>{t.pinImage}</ContextMenuItem>
           <ContextMenuItem onClick={() => actions.copy(item)}>{t.copyImage}</ContextMenuItem>
+          <ContextMenuItem onClick={() => actions.removeBackground(item)}>{t.removeBackground}</ContextMenuItem>
           {ocr && <ContextMenuItem onClick={() => actions.extractText(item)}>{t.extractText}</ContextMenuItem>}
         </>
       )}

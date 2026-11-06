@@ -310,7 +310,8 @@ pub fn paddle_cancel(state: tauri::State<State>) {
 #[tauri::command]
 pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSize) -> Result<(), String> {
     let whisper_busy = state.whisper_download.lock().unwrap().is_some();
-    let translate_busy = state.translate_download.lock().unwrap().is_some();
+    let translate_busy =
+        state.translate_download.lock().unwrap().is_some() || state.cutout_download.lock().unwrap().is_some();
     let download = state.download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.size == size) {
         return Err("this size is downloading".into());

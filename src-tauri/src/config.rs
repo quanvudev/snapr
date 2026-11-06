@@ -234,6 +234,7 @@ pub struct Config {
     pub record_camera: String,
     #[serde(default)]
     pub record_speaker: String,
+    pub record_denoise: bool,
     #[serde(default)]
     pub record_mode: RecordMode,
     #[serde(default = "default_quality")]
@@ -367,6 +368,7 @@ impl Default for Config {
             record_mic: default_mic(),
             record_camera: String::new(),
             record_speaker: String::new(),
+            record_denoise: true,
             record_mode: RecordMode::Fullscreen,
             record_quality: default_quality(),
             record_compress: false,
@@ -470,5 +472,14 @@ mod tests {
         assert_eq!(unknown.acceleration(), Acceleration::Auto);
         let cuda = Config { ai_acceleration: "cuda".into(), ..Config::default() };
         assert_eq!(cuda.acceleration(), Acceleration::Cuda);
+    }
+
+    #[test]
+    fn denoise_defaults_to_on() {
+        let old: Config = toml::from_str("output_dir = \"~/Pictures/snapr\"
+record_mic = \"default\"").unwrap();
+        assert!(old.record_denoise);
+        let off: Config = toml::from_str("record_denoise = false").unwrap();
+        assert!(!off.record_denoise);
     }
 }
