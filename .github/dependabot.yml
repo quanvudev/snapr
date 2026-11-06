@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: glib
+        update-types:
+          - version-update:semver-major
