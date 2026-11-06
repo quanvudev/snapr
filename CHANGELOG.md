@@ -2,6 +2,18 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [2.0.0] - 2026-11-06
+
+### Breaking
+- Your output folder is now organized: screenshots and GIFs are saved in an `Images` folder and recordings, with their subtitle files, in a `Videos` folder inside it. On the first start after updating, Snapr moves the photos and videos already in the output folder into these folders once (a name that is taken gets a `_1` suffix); nothing is deleted and other files stay where they are. If you have shortcuts or scripts pointing at files in the old location, update them to the new folders.
+
+### Added
+- Trim video: right-click a video in the gallery, or use the scissors button in the viewer, pick the start and end on a preview, and Snapr saves a shortened copy (`<name>_trimmed.mp4`) in the background. The sound is kept, the original is untouched, and the video's subtitles and translations are cut to match.
+
+### Changed
+- The gallery shows files from the output folder and its `Images` and `Videos` folders together.
+- Updated dependencies.
+
 ## [1.13.0] - 2026-11-06
 
 ### Added
