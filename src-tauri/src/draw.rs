@@ -42,7 +42,7 @@ static FONTS: [OnceLock<Option<FontVec>>; 4] = [const { OnceLock::new() }; 4];
 
 pub fn system_font(files: &[&str]) -> Option<FontVec> {
     let dir = std::path::Path::new(&std::env::var_os("WINDIR")?).join(FONTS_DIR);
-    files.iter().find_map(|file| FontVec::try_from_vec(std::fs::read(dir.join(file)).ok()?).ok())
+    files.iter().find_map(|file| FontVec::try_from_vec_and_index(std::fs::read(dir.join(file)).ok()?, 0).ok())
 }
 
 fn variant(slot: usize) -> Option<&'static FontVec> {

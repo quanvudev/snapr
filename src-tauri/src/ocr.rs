@@ -1,5 +1,6 @@
 mod paddle;
 
+use crate::onnx::Workload;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
@@ -24,14 +25,14 @@ pub struct OcrLine {
 
 const QR_MAX: u32 = 2000;
 
-static ENGINE: Mutex<Option<(PaddleSize, paddle::Engine)>> = Mutex::new(None);
+static ENGINE: Mutex<Option<(PaddleSize, bool, paddle::Engine)>> = Mutex::new(None);
 
 pub struct PaddleModel {
     pub size: PaddleSize,
     pub det: PathBuf,
     pub rec: PathBuf,
     pub dict: PathBuf,
-    pub runtime: PathBuf,
+    pub runtime: crate::onnx::Target,
     pub params: (f32, f32, f32),
 }
 
@@ -97,16 +98,22 @@ fn paddle_lines(img: &RgbaImage, model: &PaddleModel) -> Result<Vec<OcrLine>, St
 }
 
 fn paddle_run(img: &RgbaImage, model: &PaddleModel) -> Result<Vec<paddle::Line>, String> {
-    let mut cache = ENGINE.lock().unwrap_or_else(PoisonError::into_inner);
-    let engine = match &mut *cache {
-        Some((size, engine)) if *size == model.size => engine,
-        slot => {
-            *slot = None;
-            let engine = paddle::Engine::load(&model.det, &model.rec, &model.dict, &model.runtime)?;
-            &mut slot.insert((model.size, engine)).1
-        }
-    };
-    engine.extract(img, model.params)
+    crate::onnx::retry_on_cpu(Workload::Ocr, || {
+        let mut cache = ENGINE.lock().unwrap_or_else(PoisonError::into_inner);
+        let engine = match &mut *cache {
+            Some((size, gpu, engine)) if *size == model.size && *gpu == on_gpu() => engine,
+            slot => {
+                *slot = None;
+                let engine = paddle::Engine::load(&model.det, &model.rec, &model.dict, &model.runtime)?;
+                &mut slot.insert((model.size, on_gpu(), engine)).2
+            }
+        };
+        engine.extract(img, model.params)
+    })
+}
+
+fn on_gpu() -> bool {
+    crate::onnx::gpu_for(Workload::Ocr).is_some()
 }
 
 pub fn paddle_extract(img: &RgbaImage, model: &PaddleModel) -> Result<String, String> {
@@ -116,7 +123,7 @@ pub fn paddle_extract(img: &RgbaImage, model: &PaddleModel) -> Result<String, St
 
 pub fn paddle_unload(size: Option<PaddleSize>) {
     let mut cache = ENGINE.lock().unwrap_or_else(PoisonError::into_inner);
-    if size.is_none() || cache.as_ref().map(|(cached, _)| *cached) == size {
+    if size.is_none() || cache.as_ref().map(|(cached, _, _)| *cached) == size {
         *cache = None;
     }
 }

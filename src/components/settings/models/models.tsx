@@ -1,11 +1,12 @@
 import { useSettingsContext } from "@/components/settings-provider";
 import { SectionHeading } from "../section-heading";
+import { AccelerationCard } from "./acceleration-card";
 import { SettingsCard } from "../settings-card";
 import { DownloadedModels } from "./downloaded-models";
 import { ModelCard } from "./model-card";
 import { ModelUsageRow } from "./model-usage-row";
 import { paddleLabels } from "./paddle-labels";
-import { usePaddleStore, useTranslateStore, useWhisperStore } from "./stores";
+import { useRuntimeStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
 import { TranslateCard, useLicensePrompt } from "./translate-card";
 import { TranscriptLanguageRow } from "./transcript-language-row";
 
@@ -15,6 +16,8 @@ export function Models() {
   const whisper = useWhisperStore();
   const license = useLicensePrompt();
   const translate = useTranslateStore(license.ask);
+  const whisperGpu = useWhisperGpuStore();
+  const runtimes = useRuntimeStore();
   const { descs } = paddleLabels(t);
   const paddleDescription = `${descs[paddle.selected as keyof typeof descs]} ${t.paddleNoVi}`;
   const state = (on: boolean) => (on ? t.modelOn : t.modelOff);
@@ -22,6 +25,9 @@ export function Models() {
   return (
     <>
       <p className="text-sm text-muted-foreground">{t.modelsIntro}</p>
+      <SectionHeading>{t.accelTitle}</SectionHeading>
+      <p className="text-sm text-muted-foreground">{t.accelHint}</p>
+      <AccelerationCard />
       <SectionHeading>{t.modelsText}</SectionHeading>
       <SettingsCard>
         <ModelCard title={t.paddleModel} description={paddleDescription} store={paddle} />
@@ -44,7 +50,7 @@ export function Models() {
       </SettingsCard>
       <SectionHeading>{t.modelsTranslation}</SectionHeading>
       <TranslateCard store={translate} asking={license.asking} onCloseLicense={license.close} />
-      <DownloadedModels stores={[paddle, whisper, translate]} />
+      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, runtimes]} />
     </>
   );
 }

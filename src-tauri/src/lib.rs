@@ -8,6 +8,7 @@ mod fetch;
 mod frame;
 mod gallery;
 mod gif;
+mod gpu;
 mod hotkeys;
 mod jobs;
 mod mouse;
@@ -74,6 +75,7 @@ pub struct State {
     download: Mutex<Option<paddle::Download>>,
     whisper_download: Mutex<Option<whisper::Download>>,
     translate_download: Mutex<Option<translate::Download>>,
+    runtime_download: Mutex<Option<onnx::Download>>,
     counting: AtomicBool,
     discard: AtomicBool,
     update: Mutex<update::Updater>,
@@ -118,6 +120,7 @@ pub fn run() {
                 download: Mutex::new(None),
                 whisper_download: Mutex::new(None),
                 translate_download: Mutex::new(None),
+                runtime_download: Mutex::new(None),
                 counting: AtomicBool::new(false),
                 discard: AtomicBool::new(false),
                 update: Mutex::new(update::Updater::default()),
@@ -192,6 +195,11 @@ pub fn run() {
             paddle::paddle_download,
             paddle::paddle_cancel,
             paddle::paddle_delete,
+            onnx::acceleration_status,
+            onnx::acceleration_download,
+            onnx::acceleration_cancel,
+            onnx::acceleration_delete,
+            onnx::acceleration_restart,
             whisper::whisper_status,
             whisper::whisper_download,
             redact::redact_validate,

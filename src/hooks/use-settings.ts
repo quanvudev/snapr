@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Config, type Row } from "@/lib/api";
+import { api, type Config, type GpuRuntime, type Row } from "@/lib/api";
 import { defaultCombos, SLOTS } from "@/lib/hotkeys";
 import { T } from "@/lib/i18n";
+import { useAcceleration } from "./use-acceleration";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 import { usePaddle } from "./use-paddle";
 import { useUpdate } from "./use-update";
@@ -84,6 +85,20 @@ export function useSettings() {
   const whisper = useWhisper();
   const translator = useTranslate();
   const updater = useUpdate();
+  const acceleration = useAcceleration();
+
+  const whisperModel = cfg?.whisper_model;
+  const cudaResolved = acceleration.status.resolved === "cuda" || acceleration.status.loaded === "cuda";
+  const gpuMissing =
+    !!whisperModel &&
+    cudaResolved &&
+    whisper.status.ready.includes(whisperModel) &&
+    !whisper.status.gpu_ready.includes(whisperModel) &&
+    !whisper.progress &&
+    whisper.error?.model !== whisperModel;
+  useEffect(() => {
+    if (gpuMissing && whisperModel) whisper.download(whisperModel, true);
+  }, [gpuMissing, whisperModel]);
 
   const outputDir = cfg?.output_dir;
   useEffect(() => {
@@ -121,6 +136,12 @@ export function useSettings() {
       if (!cfg?.hymt_license_accepted && next.hymt_license_accepted && !translator.status.ready && !translator.progress) {
         translator.download();
       }
+      if (cfg?.ai_acceleration !== next.ai_acceleration) {
+        const runtime = next.ai_acceleration;
+        const missing = acceleration.status.runtimes.find((r) => r.id === runtime && !r.ready);
+        if (missing && !acceleration.progress) acceleration.download(runtime as GpuRuntime);
+        await acceleration.refresh();
+      }
     } catch {
       setFailed(true);
     }
@@ -157,6 +178,7 @@ export function useSettings() {
     whisper,
     translator,
     updater,
+    acceleration,
     textActive,
     rows,
     failed,

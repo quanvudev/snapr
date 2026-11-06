@@ -3,7 +3,7 @@ use crate::queue::{self, CANCELLED, Progress, Task};
 use crate::transcript::{self, AudioFormat, NO_AUDIO, Segment, Track};
 use crate::video::{self, Quality};
 use crate::{draw, toolbar};
-use ab_glyph::FontVec;
+use ab_glyph::{Font, FontVec};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,21 +16,29 @@ use windows_capture::encoder::{
 
 pub const NO_TRANSCRIPT: &str = "NO_TRANSCRIPT";
 pub const NO_FONT: &str = "NO_FONT";
+pub const INVALID_STYLE: &str = "INVALID_STYLE";
 const KIND: &str = "subtitle";
 const VIDEO_EXT: &str = "mp4";
 const SUBTITLED_SUFFIX: &str = "_subtitled";
 const FONT_FILES: [&str; 2] = ["segoeuib.ttf", "segoeui.ttf"];
+const FALLBACK_FONTS: [&str; 7] =
+    ["YuGothB.ttc", "msyhbd.ttc", "msjhbd.ttc", "malgunbd.ttf", "LeelaUIb.ttf", "Nirmala.ttc", "segoeuib.ttf"];
 const SIZE_RATIO: [f32; 3] = [0.04, 0.055, 0.075];
 const MIN_TEXT_PX: f32 = 16.0;
 const EDGE_MARGIN_RATIO: f32 = 0.06;
 const MAX_WIDTH_RATIO: f32 = 0.9;
-const BOX_ALPHA: f32 = 0.6;
 const BOX_PAD_X_RATIO: f32 = 0.5;
 const BOX_PAD_Y_RATIO: f32 = 0.25;
 const LINE_HEIGHT_RATIO: f32 = 1.25;
 const BOX_RADIUS_RATIO: f32 = 0.25;
-const BOX_RGB: [u8; 3] = [0x00, 0x00, 0x00];
-const TEXT_RGB: [u8; 3] = [0xFF, 0xFF, 0xFF];
+const DEFAULT_TEXT: &str = "#ffffff";
+const DEFAULT_BACKGROUND: &str = "#000000";
+const DEFAULT_OPACITY: u8 = 60;
+const OUTLINE_RATIO: f32 = 0.06;
+const OUTLINE_STEPS: usize = 16;
+const LIGHT_LUMA: u32 = 128;
+const DARK_RGB: [u8; 3] = [0x00, 0x00, 0x00];
+const LIGHT_RGB: [u8; 3] = [0xFF, 0xFF, 0xFF];
 const FALLBACK_FPS: f64 = 30.0;
 const PERCENT: u64 = 100;
 const BYTES_PER_PIXEL: usize = 4;
@@ -60,11 +68,81 @@ pub enum Size {
     Large,
 }
 
+#[derive(Deserialize, Clone)]
+#[serde(default)]
+pub struct Style {
+    text_color: String,
+    background: String,
+    opacity: u8,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Style { text_color: DEFAULT_TEXT.into(), background: DEFAULT_BACKGROUND.into(), opacity: DEFAULT_OPACITY }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Look {
+    text: [u8; 3],
+    background: Option<[u8; 3]>,
+    alpha: u8,
+}
+
+fn hex(value: &str) -> Option<[u8; 3]> {
+    let digits = value.strip_prefix('#').filter(|d| d.len() == 6 && d.is_ascii())?;
+    let channel = |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
+}
+
+impl Style {
+    fn look(&self) -> Result<Look, String> {
+        let text = hex(&self.text_color).ok_or(INVALID_STYLE)?;
+        let background = match self.background.as_str() {
+            "" => None,
+            value => Some(hex(value).ok_or(INVALID_STYLE)?),
+        };
+        if self.opacity > PERCENT as u8 {
+            return Err(INVALID_STYLE.into());
+        }
+        let alpha = (u32::from(self.opacity) * u32::from(u8::MAX) / PERCENT as u32) as u8;
+        Ok(Look { text, background, alpha })
+    }
+}
+
+fn outline_colour(text: [u8; 3]) -> [u8; 3] {
+    let luma = (299 * u32::from(text[0]) + 587 * u32::from(text[1]) + 114 * u32::from(text[2])) / 1000;
+    if luma >= LIGHT_LUMA { DARK_RGB } else { LIGHT_RGB }
+}
+
 struct Cue {
     bgra: Vec<u8>,
     width: usize,
     left: usize,
     bottom: usize,
+}
+
+fn missing(font: &FontVec, text: &[char]) -> usize {
+    text.iter().filter(|&&c| font.glyph_id(c).0 == 0).count()
+}
+
+fn pick_font(segments: &[Segment]) -> Option<FontVec> {
+    let mut text: Vec<char> = segments.iter().flat_map(|segment| segment.text.chars()).filter(|c| !c.is_whitespace()).collect();
+    text.sort_unstable();
+    text.dedup();
+    let mut best = draw::system_font(&FONT_FILES)?;
+    let mut best_missing = missing(&best, &text);
+    for file in FALLBACK_FONTS {
+        if best_missing == 0 {
+            break;
+        }
+        let Some(font) = draw::system_font(&[file]) else { continue };
+        let count = missing(&font, &text);
+        if count < best_missing {
+            (best, best_missing) = (font, count);
+        }
+    }
+    Some(best)
 }
 
 fn wrap(font: &FontVec, size: f32, text: &str, max: f32) -> Vec<String> {
@@ -99,7 +177,7 @@ fn wrap(font: &FontVec, size: f32, text: &str, max: f32) -> Vec<String> {
 }
 
 impl Cue {
-    fn render(font: &FontVec, frame: (u32, u32), text: &str, position: Position, size: Size) -> Option<Cue> {
+    fn render(font: &FontVec, frame: (u32, u32), text: &str, position: Position, size: Size, look: Look) -> Option<Cue> {
         let (frame_w, frame_h) = (frame.0 as f32, frame.1 as f32);
         let text_px = (frame_h * SIZE_RATIO[size as usize]).max(MIN_TEXT_PX);
         let (pad_x, pad_y) = (text_px * BOX_PAD_X_RATIO, text_px * BOX_PAD_Y_RATIO);
@@ -110,13 +188,23 @@ impl Cue {
         let box_w = (widths.iter().copied().fold(0.0, f32::max) + 2.0 * pad_x).min(frame_w);
         let box_h = (lines.len() as f32 * line_height + 2.0 * pad_y).min(frame_h);
         let mut pixmap = Pixmap::new(box_w.ceil() as u32, box_h.ceil() as u32)?;
-        let alpha = (BOX_ALPHA * f32::from(u8::MAX)).round() as u8;
-        toolbar::fill(&mut pixmap, (0.0, 0.0, box_w, box_h), text_px * BOX_RADIUS_RATIO, BOX_RGB, alpha);
+        if let Some(background) = look.background {
+            toolbar::fill(&mut pixmap, (0.0, 0.0, box_w, box_h), text_px * BOX_RADIUS_RATIO, background, look.alpha);
+        }
         let glyph_height = draw::measure(font, text_px, "").1;
+        let outline = (text_px * OUTLINE_RATIO).max(1.0);
         for (i, (line, width)) in lines.iter().zip(&widths).enumerate() {
             let top = pad_y + i as f32 * line_height + (line_height - glyph_height) / 2.0;
             let at = Point::from_xy((box_w - width) / 2.0, top);
-            draw::text(&mut pixmap, font, at, std::slice::from_ref(line), text_px, TEXT_RGB, None);
+            let line = std::slice::from_ref(line);
+            if look.background.is_none() {
+                for step in 0..OUTLINE_STEPS {
+                    let angle = step as f32 * std::f32::consts::TAU / OUTLINE_STEPS as f32;
+                    let shifted = Point::from_xy(at.x + outline * angle.cos(), at.y + outline * angle.sin());
+                    draw::text(&mut pixmap, font, shifted, line, text_px, outline_colour(look.text), None);
+                }
+            }
+            draw::text(&mut pixmap, font, at, line, text_px, look.text, None);
         }
         let margin = frame_h * EDGE_MARGIN_RATIO;
         let y = match position {
@@ -162,6 +250,7 @@ pub struct SubtitleTask {
     track: Track,
     position: Position,
     size: Size,
+    look: Look,
     font: FontVec,
 }
 
@@ -178,7 +267,15 @@ fn read_audio(reader: Option<&IMFSourceReader>) -> Result<Option<(Vec<u8>, u64)>
 }
 
 impl SubtitleTask {
-    pub fn validated(app: &AppHandle, path: &str, position: Position, size: Size, track: Track) -> Result<SubtitleTask, String> {
+    pub fn validated(
+        app: &AppHandle,
+        path: &str,
+        position: Position,
+        size: Size,
+        style: &Style,
+        track: Track,
+    ) -> Result<SubtitleTask, String> {
+        let look = style.look()?;
         let path = video::guarded_mp4(app, path)?;
         let out_dir = path.parent().ok_or("no output folder")?.to_path_buf();
         let srt = std::fs::read_to_string(track.path(&path)).map_err(|_| NO_TRANSCRIPT.to_string())?;
@@ -187,8 +284,8 @@ impl SubtitleTask {
         if segments.is_empty() {
             return Err(NO_TRANSCRIPT.into());
         }
-        let font = draw::system_font(&FONT_FILES).ok_or(NO_FONT)?;
-        Ok(SubtitleTask { path, out_dir, segments, track, position, size, font })
+        let font = pick_font(&segments).ok_or(NO_FONT)?;
+        Ok(SubtitleTask { path, out_dir, segments, track, position, size, look, font })
     }
 
     fn stem(&self) -> String {
@@ -217,7 +314,7 @@ impl SubtitleTask {
         let Some(index) = self.active(stamp / HNS_PER_MS) else { return Ok(()) };
         if cache.as_ref().is_none_or(|(cached, _)| *cached != index) {
             let text = self.segments[index].text.trim();
-            *cache = Some((index, Cue::render(&self.font, size, text, self.position, self.size)));
+            *cache = Some((index, Cue::render(&self.font, size, text, self.position, self.size, self.look)));
         }
         if let Some((_, Some(cue))) = cache {
             cue.burn(buffer, size.0);
@@ -337,12 +434,35 @@ mod tests {
     const TEST_OUTPUT: &str = "snapr_subtitle_test.mp4.part";
 
     #[test]
+    fn parses_styles() {
+        let style = |text: &str, background: &str, opacity| Style { text_color: text.into(), background: background.into(), opacity };
+        let look = style("#FFD60A", "", 60).look().unwrap();
+        assert_eq!((look.text, look.background), ([0xFF, 0xD6, 0x0A], None));
+        assert_eq!(style("#ffffff", "#000000", 100).look().unwrap().alpha, u8::MAX);
+        assert!(style("red", "#000000", 60).look().is_err());
+        assert!(style("#ffffff", "#00000", 60).look().is_err());
+        assert!(style("#ffffff", "#000000", 101).look().is_err());
+        assert_eq!(outline_colour([0xFF, 0xFF, 0xFF]), DARK_RGB);
+        assert_eq!(outline_colour([0x00, 0x00, 0x00]), LIGHT_RGB);
+    }
+
+    #[test]
+    fn picks_fonts_for_every_script() {
+        for text in ["Xin chào thế giới", "こんにちは、世界。日本語の字幕", "你好世界，这是字幕", "안녕하세요 세계", "สวัสดีชาวโลก", "नमस्ते दुनिया"] {
+            let segments = [Segment { start_ms: 0, end_ms: 1, text: text.into() }];
+            let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+            assert_eq!(missing(&pick_font(&segments).unwrap(), &chars), 0, "{text}");
+        }
+    }
+
+    #[test]
     #[ignore]
     fn encodes_without_stalling() {
         let Ok(video) = std::env::var(TEST_ENV) else { return };
         let path = PathBuf::from(video);
         let srt = std::fs::read_to_string(Track::Original.path(&path)).unwrap();
-        let segments = transcript::parse_srt(&srt).into_iter().filter(|s| !s.text.trim().is_empty()).collect();
+        let segments: Vec<Segment> = transcript::parse_srt(&srt).into_iter().filter(|s| !s.text.trim().is_empty()).collect();
+        let font = pick_font(&segments).unwrap();
         let task = SubtitleTask {
             out_dir: std::env::temp_dir(),
             path,
@@ -350,7 +470,8 @@ mod tests {
             track: Track::Original,
             position: Position::Bottom,
             size: Size::Medium,
-            font: draw::system_font(&FONT_FILES).unwrap(),
+            look: Style::default().look().unwrap(),
+            font,
         };
         let part = std::env::temp_dir().join(TEST_OUTPUT);
         let result = task.encode(&part, &|_| {}, &AtomicBool::new(false));

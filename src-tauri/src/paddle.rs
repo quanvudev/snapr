@@ -167,7 +167,7 @@ fn ready_model(app: &AppHandle, size: PaddleSize) -> Option<PaddleModel> {
         return None;
     }
     let (det, rec, dict) = files(app, size);
-    Some(PaddleModel { size, det, rec, dict, runtime: crate::onnx::runtime_path(app), params: det_params(size) })
+    Some(PaddleModel { size, det, rec, dict, runtime: crate::onnx::target(app), params: det_params(size) })
 }
 
 pub fn unload_others(cfg: &Config) {

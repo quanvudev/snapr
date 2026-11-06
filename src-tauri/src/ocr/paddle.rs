@@ -3,7 +3,7 @@ use std::path::Path;
 use image::RgbaImage;
 use image::imageops::{FilterType, crop_imm, resize};
 use ndarray::{Array4, ArrayView2, Axis};
-use ort::environment::Environment;
+use crate::onnx::Workload;
 use ort::session::Session;
 use ort::value::TensorRef;
 
@@ -31,30 +31,20 @@ pub struct Engine {
     dict: Vec<String>,
 }
 
-fn session(env: &Environment, path: &Path) -> Result<Session, String> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
-    Session::builder(env)
-        .map_err(|e| e.to_string())?
-        .with_intra_threads(threads)
-        .map_err(|e| e.to_string())?
-        .with_intra_op_spinning(false)
-        .map_err(|e| e.to_string())?
-        .with_inter_op_spinning(false)
-        .map_err(|e| e.to_string())?
-        .commit_from_file(path)
-        .map_err(|e| e.to_string())
-}
-
 impl Engine {
-    pub fn load(det: &Path, rec: &Path, dict: &Path, runtime_path: &Path) -> Result<Self, String> {
-        let env = crate::onnx::init(runtime_path)?;
+    pub fn load(det: &Path, rec: &Path, dict: &Path, runtime: &crate::onnx::Target) -> Result<Self, String> {
+        let env = crate::onnx::init(runtime)?;
         let mut dict: Vec<String> = std::fs::read_to_string(dict)
             .map_err(|e| e.to_string())?
             .lines()
             .map(str::to_owned)
             .collect();
         dict.push(" ".into());
-        Ok(Self { det: session(env, det)?, rec: session(env, rec)?, dict })
+        Ok(Self {
+            det: crate::onnx::session(env, det, Workload::Ocr)?,
+            rec: crate::onnx::session(env, rec, Workload::Ocr)?,
+            dict,
+        })
     }
 
     pub fn extract(&mut self, img: &RgbaImage, params: (f32, f32, f32)) -> Result<Vec<Line>, String> {
@@ -187,4 +177,48 @@ fn decode(dict: &[String], steps: ArrayView2<f32>) -> String {
         last = best;
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn extracts_screenshots() {
+        let vars = ["SNAPR_PADDLE_DIR", "SNAPR_ORT_DLL", "SNAPR_IMAGES"].map(std::env::var);
+        let [Ok(model), Ok(dll), Ok(images)] = vars else { return };
+        let runtime = match std::env::var("SNAPR_ORT_EP").as_deref() {
+            Ok("directml") => crate::onnx::Runtime::DirectMl,
+            Ok("cuda") => crate::onnx::Runtime::Cuda,
+            _ => crate::onnx::Runtime::Cpu,
+        };
+        let target = crate::onnx::Target { runtime, dll: dll.into(), device: 0 };
+        let model = Path::new(&model);
+        let mut engine =
+            Engine::load(&model.join("det.onnx"), &model.join("rec.onnx"), &model.join("dict.txt"), &target).unwrap();
+        let mut paths: Vec<_> = std::fs::read_dir(images).unwrap().flatten().map(|e| e.path()).collect();
+        paths.retain(|p| p.extension().is_some_and(|e| e == "png"));
+        paths.sort();
+        for path in paths.iter().take(5) {
+            let full = image::open(path).unwrap().to_rgba8();
+            let half = image::imageops::crop_imm(&full, 0, 0, full.width() / 2, full.height() / 2).to_image();
+            for img in [full, half] {
+                let started = std::time::Instant::now();
+                let first = engine.extract(&img, (0.3, 0.6, 1.5)).unwrap();
+                let first_time = started.elapsed();
+                let started = std::time::Instant::now();
+                engine.extract(&img, (0.3, 0.6, 1.5)).unwrap();
+                let text: String = first.iter().map(|l| l.4.as_str()).collect::<Vec<_>>().join(" | ");
+                eprintln!(
+                    "{}x{} first {first_time:?} repeat {:?} lines {} :: {}",
+                    img.width(),
+                    img.height(),
+                    started.elapsed(),
+                    first.len(),
+                    text.chars().take(90).collect::<String>()
+                );
+            }
+        }
+    }
 }

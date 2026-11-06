@@ -1,4 +1,4 @@
-import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, TaskSpec, Track } from "./api";
+import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, SubtitleStyle, TaskSpec, Track } from "./api";
 import type { T } from "./i18n";
 
 export type Strings = (typeof T)["en"];
@@ -129,7 +129,7 @@ export function gifSpec(path: string, preset: GifPreset, startMs: number, endMs:
   return { kind: "gif", path, start_ms: startMs, end_ms: endMs, width: preset.width, fps: preset.fps };
 }
 
-export type SubtitlePreset = { position: SubtitlePosition; size: SubtitleSize };
+export type SubtitlePreset = { position: SubtitlePosition; size: SubtitleSize; style: SubtitleStyle };
 
 export const SUBTITLE_POSITIONS: { value: SubtitlePosition; label: keyof Strings }[] = [
   { value: "bottom", label: "subtitleBottom" },
@@ -140,12 +140,37 @@ export const SUBTITLE_SIZES: { value: SubtitleSize; label: keyof Strings }[] = [
   { value: "medium", label: "subtitleMedium" },
   { value: "large", label: "subtitleLarge" },
 ];
-export const SUBTITLE_DEFAULT: SubtitlePreset = { position: "bottom", size: "medium" };
+export const SUBTITLE_TEXT_COLORS: { value: string; label: keyof Strings }[] = [
+  { value: "#ffffff", label: "colorWhite" },
+  { value: "#ffd60a", label: "colorYellow" },
+  { value: "#4cc9f0", label: "colorCyan" },
+  { value: "#80ed99", label: "colorGreen" },
+  { value: "#000000", label: "colorBlack" },
+];
+export const SUBTITLE_BACKGROUNDS: { value: string; label: keyof Strings }[] = [
+  { value: "", label: "subtitleNoBackground" },
+  { value: "#000000", label: "colorBlack" },
+  { value: "#ffffff", label: "colorWhite" },
+  { value: "#1e3a8a", label: "colorNavy" },
+];
+export const SUBTITLE_OPACITIES = [40, 60, 80, 100];
+export const OUTLINE_RATIO = 0.06;
+export const OUTLINE_STEPS = 16;
+const LIGHT_LUMA = 128;
+export const SUBTITLE_DEFAULT: SubtitlePreset = {
+  position: "bottom",
+  size: "medium",
+  style: { text_color: "#ffffff", background: "#000000", opacity: 60 },
+};
+
+export function outlineColor(hex: string) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return (299 * r + 587 * g + 114 * b) / 1000 >= LIGHT_LUMA ? "#000000" : "#ffffff";
+}
 export const SUBTITLE_SIZE_RATIO: Record<SubtitleSize, number> = { small: 0.04, medium: 0.055, large: 0.075 };
 export const MIN_TEXT_PX = 16;
 export const EDGE_MARGIN_RATIO = 0.06;
 export const MAX_WIDTH_RATIO = 0.9;
-export const BOX_ALPHA = 0.6;
 export const BOX_PADDING_X_RATIO = 0.5;
 export const BOX_PADDING_Y_RATIO = 0.25;
 export const LINE_HEIGHT_RATIO = 1.25;
@@ -161,7 +186,13 @@ export function loadSubtitlePreset(): SubtitlePreset {
       SUBTITLE_POSITIONS.some((p) => p.value === value.position) &&
       SUBTITLE_SIZES.some((s) => s.value === value.size)
     ) {
-      return { position: value.position, size: value.size };
+      const style = value.style;
+      const valid =
+        style &&
+        SUBTITLE_TEXT_COLORS.some((c) => c.value === style.text_color) &&
+        SUBTITLE_BACKGROUNDS.some((c) => c.value === style.background) &&
+        SUBTITLE_OPACITIES.includes(style.opacity);
+      return { position: value.position, size: value.size, style: valid ? style : SUBTITLE_DEFAULT.style };
     }
   } catch {}
   return SUBTITLE_DEFAULT;
@@ -174,7 +205,7 @@ export function saveSubtitlePreset(preset: SubtitlePreset) {
 }
 
 export function subtitleSpec(path: string, preset: SubtitlePreset, track: Track = "original"): TaskSpec {
-  return { kind: "subtitle", path, position: preset.position, size: preset.size, track };
+  return { kind: "subtitle", path, position: preset.position, size: preset.size, style: preset.style, track };
 }
 
 export function percent(done: number, total: number) {

@@ -2,7 +2,7 @@ use crate::events;
 use crate::State;
 use crate::capture;
 use crate::gif::GifTask;
-use crate::subtitle::{Position, Size, SubtitleTask};
+use crate::subtitle::{Position, Size, Style, SubtitleTask};
 use crate::transcript::{TranscribeTask, Track};
 use crate::video::CompressTask;
 use serde::{Deserialize, Serialize};
@@ -398,6 +398,8 @@ pub enum TaskSpec {
         position: Position,
         size: Size,
         #[serde(default)]
+        style: Style,
+        #[serde(default)]
         track: Track,
     },
 }
@@ -411,8 +413,8 @@ impl TaskSpec {
             TaskSpec::Compress { path, quality, height } => Box::new(CompressTask::validated(app, &path, &quality, height)?),
             TaskSpec::Transcribe { path } => Box::new(TranscribeTask::validated(app, &path, Track::Original)?),
             TaskSpec::Translate { path, target } => crate::translate::task::task(app, &path, target.as_deref())?,
-            TaskSpec::Subtitle { path, position, size, track } => {
-                Box::new(SubtitleTask::validated(app, &path, position, size, track)?)
+            TaskSpec::Subtitle { path, position, size, style, track } => {
+                Box::new(SubtitleTask::validated(app, &path, position, size, &style, track)?)
             }
         })
     }

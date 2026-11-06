@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { useSettingsContext } from "@/components/settings-provider";
 import { SectionHeading } from "../section-heading";
 import { SettingsCard } from "../settings-card";
@@ -22,7 +22,7 @@ import { mb } from "./whisper-models";
 type Target = { store: ModelStore; id: string };
 
 const rowName = (store: ModelStore, id: string) =>
-  labelOf(store, id) === store.name ? store.name : `${store.name} · ${labelOf(store, id)}`;
+  !store.name || labelOf(store, id) === store.name ? labelOf(store, id) : `${store.name} · ${labelOf(store, id)}`;
 
 export function DownloadedModels({ stores }: { stores: ModelStore[] }) {
   const { t } = useSettingsContext();
@@ -46,6 +46,7 @@ export function DownloadedModels({ stores }: { stores: ModelStore[] }) {
         <SettingsCard>
           {rows.map(({ store, id }) => {
             const inUse = store.selected === id;
+            const locked = store.locked?.ids.includes(id) ?? false;
             return (
               <Item key={`${store.name}-${id}`} variant="muted" size="sm">
                 <ItemContent>
@@ -53,13 +54,14 @@ export function DownloadedModels({ stores }: { stores: ModelStore[] }) {
                     {rowName(store, id)}
                     <Badge variant={inUse ? "default" : "secondary"}>{inUse ? t.paddleInUse : t.paddleDownloaded}</Badge>
                   </ItemTitle>
+                  {locked && <ItemDescription>{store.locked?.hint}</ItemDescription>}
                 </ItemContent>
                 <ItemActions className="gap-3">
                   <span className="text-sm text-muted-foreground">{mb(store.bytes[id])}</span>
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={store.progress?.id === id}
+                    disabled={store.progress?.id === id || locked}
                     onClick={() => setTarget({ store, id })}
                   >
                     {t.paddleDelete}

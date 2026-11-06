@@ -1,5 +1,6 @@
 import { useSettingsContext } from "@/components/settings-provider";
-import type { PaddleSize, WhisperModel } from "@/lib/api";
+import type { GpuRuntime, PaddleSize, WhisperModel } from "@/lib/api";
+import { RUNTIME_NAMES } from "./acceleration-card";
 import { PADDLE_SIZES, paddleLabels } from "./paddle-labels";
 import { HYMT_ID, HYMT_NAME } from "@/lib/hymt";
 import { mb, WHISPER_MODELS } from "./whisper-models";
@@ -15,12 +16,13 @@ export type ModelStore = {
   selected: string;
   ready: string[];
   bytes: Record<string, number>;
-  progress: { id: string; done: number; total: number } | null;
+  progress: { id: string; done: number; total: number; label?: string } | null;
   error: { id: string; message: string } | null;
   select: (id: string) => void;
   download: (id: string) => void;
   cancel: () => void;
   remove: (id: string) => void;
+  locked?: { ids: string[]; hint: string };
 };
 
 export function labelOf(store: ModelStore, id: string) {
@@ -57,12 +59,57 @@ export function useWhisperStore(): ModelStore {
     selected: cfg.whisper_model,
     ready: whisper.status.ready,
     bytes: whisper.status.bytes,
-    progress: whisper.progress && { id: whisper.progress.model, done: whisper.progress.done, total: whisper.progress.total },
+    progress: whisper.progress && {
+      id: whisper.progress.model,
+      done: whisper.progress.done,
+      total: whisper.progress.total,
+      label: whisper.progress.gpu ? `${t[labelKey(whisper.progress.model)]} (GPU)` : undefined,
+    },
     error: whisper.error && { id: whisper.error.model, message: whisper.error.message },
     select: (id) => update({ ...cfg, whisper_model: id as WhisperModel }),
     download: (id) => whisper.download(id as WhisperModel),
     cancel: whisper.cancel,
     remove: (id) => whisper.remove(id as WhisperModel),
+  };
+}
+
+const labelKey = (model: WhisperModel) => WHISPER_MODELS.find((m) => m.value === model)?.label ?? "whisperSmall";
+
+export function useWhisperGpuStore(): ModelStore {
+  const { cfg, t, whisper, acceleration } = useSettingsContext();
+  const onCuda = (acceleration.status.loaded ?? acceleration.status.resolved) === "cuda";
+  return {
+    name: t.whisperGpu,
+    options: WHISPER_MODELS.map(({ value, label }) => ({ id: value, label: t[label] })),
+    selected: onCuda ? cfg.whisper_model : "",
+    ready: whisper.status.gpu_ready,
+    bytes: whisper.status.gpu_bytes,
+    progress: null,
+    error: null,
+    select: () => {},
+    download: (id) => whisper.download(id as WhisperModel, true),
+    cancel: whisper.cancel,
+    remove: (id) => whisper.remove(id as WhisperModel, true),
+  };
+}
+
+export function useRuntimeStore(): ModelStore {
+  const { t, acceleration } = useSettingsContext();
+  const { status, progress } = acceleration;
+  const loaded = status.loaded ?? "";
+  return {
+    name: "",
+    options: status.runtimes.map((r) => ({ id: r.id, label: t.accelRuntime.replace("{name}", RUNTIME_NAMES[r.id]) })),
+    selected: loaded,
+    ready: status.runtimes.filter((r) => r.ready).map((r) => r.id),
+    bytes: Object.fromEntries(status.runtimes.map((r) => [r.id, r.disk])),
+    progress: progress && { id: progress.runtime, done: progress.done, total: progress.total },
+    error: null,
+    select: () => {},
+    download: (id) => acceleration.download(id as GpuRuntime),
+    cancel: acceleration.cancel,
+    remove: (id) => acceleration.remove(id as GpuRuntime),
+    locked: { ids: loaded && loaded !== "cpu" ? [loaded] : [], hint: t.accelLoadedHint },
   };
 }
 

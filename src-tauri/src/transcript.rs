@@ -132,7 +132,7 @@ pub struct TranscribeTask {
     out_dir: PathBuf,
     model: WhisperModel,
     model_dir: PathBuf,
-    runtime: PathBuf,
+    runtime: onnx::Target,
     language: String,
 }
 
@@ -279,7 +279,7 @@ impl TranscribeTask {
             out_dir,
             model,
             model_dir: whisper::model_dir(app, model),
-            runtime: onnx::runtime_path(app),
+            runtime: onnx::target(app),
             language,
         })
     }
@@ -330,14 +330,16 @@ impl Task for TranscribeTask {
         )?;
         onnx::init(&self.runtime)?;
         let remaining = (PROGRESS_TOTAL - DECODE_PERCENT) as f32;
-        let (segments, language) = decode::transcribe(
-            &self.model_dir,
-            &self.language,
-            self.track == ENGLISH_TRACK,
-            &samples,
-            &|fraction| progress.set(DECODE_PERCENT + (fraction * remaining) as u64, PROGRESS_TOTAL),
-            cancel,
-        )?;
+        let (segments, language) = onnx::retry_on_cpu(onnx::Workload::Whisper, || {
+            decode::transcribe(
+                &self.model_dir,
+                &self.language,
+                self.track == ENGLISH_TRACK,
+                &samples,
+                &|fraction| progress.set(DECODE_PERCENT + (fraction * remaining) as u64, PROGRESS_TOTAL),
+                cancel,
+            )
+        })?;
         drop(samples);
         let stem = self.track.stem(&self.path);
         let output = queue::write_part_to(&self.out_dir, &stem, SRT_EXT, |part| write_srt(part, &segments), || {
@@ -373,8 +375,8 @@ fn detect_language(app: &AppHandle, path: &Path) -> Option<String> {
         if samples.is_empty() {
             return Err(NO_AUDIO.to_string());
         }
-        onnx::init(&onnx::runtime_path(app))?;
-        decode::detect(&whisper::model_dir(app, model), &samples)
+        onnx::init(&onnx::target(app))?;
+        onnx::retry_on_cpu(onnx::Workload::Whisper, || decode::detect(&whisper::model_dir(app, model), &samples))
     })();
     if let Some(busy) = DETECTING.lock().unwrap().as_mut() {
         busy.remove(path);

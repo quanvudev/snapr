@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsContext } from "@/components/settings-provider";
-import { api, type GalleryItem, type SubtitlePosition, type SubtitleSize, type Track } from "@/lib/api";
+import { api, type GalleryItem, type SubtitlePosition, type SubtitleSize, type SubtitleStyle, type Track } from "@/lib/api";
 import { type SubtitleTarget } from "@/hooks/use-gallery";
 import { activeSegment } from "@/hooks/use-transcript";
 import { fileName } from "@/lib/gallery";
 import { trackName } from "@/lib/languages";
 import {
-  BOX_ALPHA,
   BOX_PADDING_X_RATIO,
   BOX_PADDING_Y_RATIO,
   BOX_RADIUS_RATIO,
@@ -20,9 +20,16 @@ import {
   MAX_WIDTH_RATIO,
   MIN_TEXT_PX,
   MS_PER_SECOND,
+  OUTLINE_RATIO,
+  OUTLINE_STEPS,
+  outlineColor,
+  PERCENT,
+  SUBTITLE_BACKGROUNDS,
+  SUBTITLE_OPACITIES,
   SUBTITLE_POSITIONS,
   SUBTITLE_SIZE_RATIO,
   SUBTITLE_SIZES,
+  SUBTITLE_TEXT_COLORS,
   type SubtitlePreset,
 } from "@/lib/queue";
 
@@ -33,6 +40,22 @@ type Props = {
 };
 
 type Dimensions = { intrinsicH: number; renderedW: number; renderedH: number };
+
+const SWATCH = "size-4 rounded-full border border-foreground/20";
+
+function rgba(hex: string, opacity: number) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `rgba(${r}, ${g}, ${b}, ${opacity / PERCENT})`;
+}
+
+function outline(style: SubtitleStyle, text: number) {
+  const width = Math.max(1, OUTLINE_RATIO * text);
+  const color = outlineColor(style.text_color);
+  return Array.from({ length: OUTLINE_STEPS }, (_, i) => {
+    const angle = (i * 2 * Math.PI) / OUTLINE_STEPS;
+    return `${(width * Math.cos(angle)).toFixed(2)}px ${(width * Math.sin(angle)).toFixed(2)}px 0 ${color}`;
+  }).join(", ");
+}
 
 export function SubtitleDialog({ target, onClose, onExport }: Props) {
   const { t } = useSettingsContext();
@@ -61,8 +84,9 @@ function cueStyle(dims: Dimensions, preset: SubtitlePreset): CSSProperties {
     width: "max-content",
     padding: `${BOX_PADDING_Y_RATIO * text}px ${BOX_PADDING_X_RATIO * text}px`,
     borderRadius: BOX_RADIUS_RATIO * text,
-    background: `rgba(0, 0, 0, ${BOX_ALPHA})`,
-    color: "white",
+    background: preset.style.background ? rgba(preset.style.background, preset.style.opacity) : "transparent",
+    textShadow: preset.style.background ? undefined : outline(preset.style, text),
+    color: preset.style.text_color,
     fontWeight: "bold",
     fontSize: text,
     lineHeight: LINE_HEIGHT_RATIO,
@@ -101,6 +125,7 @@ function SubtitleForm({ target, onClose, onExport }: { target: SubtitleTarget } 
   }, []);
 
   const dims = intrinsicH && rendered ? { intrinsicH, renderedW: rendered.w, renderedH: rendered.h } : null;
+  const setStyle = (style: Partial<SubtitleStyle>) => setPreset({ ...preset, style: { ...preset.style, ...style } });
 
   return (
     <>
@@ -165,6 +190,54 @@ function SubtitleForm({ target, onClose, onExport }: { target: SubtitleTarget } 
             {SUBTITLE_SIZES.map((s) => (
               <ToggleGroupItem key={s.value} value={s.value}>
                 {t[s.label]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-2">
+          <span>{t.subtitleText}</span>
+          <ToggleGroup
+            variant="outline"
+            spacing={0}
+            value={[preset.style.text_color]}
+            onValueChange={(v) => v[0] && setStyle({ text_color: v[0] })}
+          >
+            {SUBTITLE_TEXT_COLORS.map((c) => (
+              <ToggleGroupItem key={c.value} value={c.value} aria-label={t[c.label]} title={t[c.label]}>
+                <span className={SWATCH} style={{ background: c.value }} />
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>{t.subtitleBackground}</span>
+          <ToggleGroup
+            variant="outline"
+            spacing={0}
+            value={[preset.style.background || "none"]}
+            onValueChange={(v) => v[0] && setStyle({ background: v[0] === "none" ? "" : v[0] })}
+          >
+            {SUBTITLE_BACKGROUNDS.map((c) => (
+              <ToggleGroupItem key={c.label} value={c.value || "none"} aria-label={t[c.label]} title={t[c.label]}>
+                {c.value ? <span className={SWATCH} style={{ background: c.value }} /> : <Ban />}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>{t.subtitleOpacity}</span>
+          <ToggleGroup
+            variant="outline"
+            spacing={0}
+            disabled={!preset.style.background}
+            value={[String(preset.style.opacity)]}
+            onValueChange={(v) => v[0] && setStyle({ opacity: Number(v[0]) })}
+          >
+            {SUBTITLE_OPACITIES.map((o) => (
+              <ToggleGroupItem key={o} value={String(o)}>
+                {o}%
               </ToggleGroupItem>
             ))}
           </ToggleGroup>

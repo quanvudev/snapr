@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 
 use tauri::{AppHandle, Manager};
 
-use super::engine::Engine;
+use super::engine::{Engine, batches};
 use super::languages::{default_target, find};
 use super::{acquire, model_dir, prompt, ready};
 use crate::queue::{self, Progress, Task};
@@ -15,6 +15,7 @@ pub const SAME_LANGUAGE: &str = "SAME_LANGUAGE";
 pub const UNSUPPORTED_LANGUAGE: &str = "UNSUPPORTED_LANGUAGE";
 const KIND: &str = "translate";
 const ENGLISH: &str = "en";
+const BATCH: usize = 8;
 
 pub struct HymtTask {
     path: PathBuf,
@@ -23,7 +24,7 @@ pub struct HymtTask {
     target: &'static str,
     segments: Vec<Segment>,
     model_dir: PathBuf,
-    runtime: PathBuf,
+    runtime: onnx::Target,
 }
 
 pub fn task(app: &AppHandle, path: &str, target: Option<&str>) -> Result<Box<dyn Task>, String> {
@@ -61,8 +62,46 @@ impl HymtTask {
             target,
             segments,
             model_dir: model_dir(app),
-            runtime: onnx::runtime_path(app),
+            runtime: onnx::target(app),
         })
+    }
+}
+
+impl HymtTask {
+    fn translate(
+        &self,
+        env: &'static ort::environment::Environment,
+        cues: &[usize],
+        progress: &Progress,
+        cancel: &AtomicBool,
+    ) -> Result<Vec<Segment>, String> {
+        let total = cues.len() as u64;
+        progress.set(0, total);
+        let mut engine = Engine::load(env, &self.model_dir)?;
+        let mut out: Vec<Segment> = self
+            .segments
+            .iter()
+            .map(|segment| Segment { start_ms: segment.start_ms, end_ms: segment.end_ms, text: String::new() })
+            .collect();
+        let requests: Vec<(String, usize)> = cues
+            .iter()
+            .map(|&i| {
+                let text = self.segments[i].text.trim();
+                (prompt::build(&self.source, self.target, text), engine.tokens(text))
+            })
+            .collect();
+        let tokens: Vec<usize> = requests.iter().map(|(_, n)| *n).collect();
+        let mut finished = 0u64;
+        for group in batches(&tokens, BATCH) {
+            let batch: Vec<(&str, usize)> = group.iter().map(|&k| (requests[k].0.as_str(), requests[k].1)).collect();
+            let replies = engine.complete_batch(&batch, cancel)?;
+            for (&k, reply) in group.iter().zip(replies) {
+                out[cues[k]].text = prompt::clean(&reply, self.target);
+            }
+            finished += group.len() as u64;
+            progress.set(finished, total);
+        }
+        Ok(out)
     }
 }
 
@@ -88,24 +127,9 @@ impl Task for HymtTask {
             return Err(MODEL_MISSING.into());
         }
         let _in_use = acquire();
-        let total = self.segments.len() as u64;
-        progress.set(0, total);
+        let cues: Vec<usize> = (0..self.segments.len()).filter(|&i| !self.segments[i].text.trim().is_empty()).collect();
         let env = onnx::init(&self.runtime)?;
-        let mut engine = Engine::load(env, &self.model_dir)?;
-        let mut out = Vec::with_capacity(self.segments.len());
-        for (index, segment) in self.segments.iter().enumerate() {
-            let text = segment.text.trim();
-            let translated = if text.is_empty() {
-                String::new()
-            } else {
-                let request = prompt::build(&self.source, self.target, text);
-                let reply = engine.complete(&request, engine.tokens(text), cancel)?;
-                prompt::clean(&reply, self.target)
-            };
-            out.push(Segment { start_ms: segment.start_ms, end_ms: segment.end_ms, text: translated });
-            progress.set(index as u64 + 1, total);
-        }
-        drop(engine);
+        let out = onnx::retry_on_cpu(onnx::Workload::Translate, || self.translate(env, &cues, progress, cancel))?;
         let track = Track::Translation(self.target);
         queue::write_part_to(&self.out_dir, &track.stem(&self.path), SRT_EXT, |part| transcript::write_srt(part, &out), || {
             track.path(&self.path)

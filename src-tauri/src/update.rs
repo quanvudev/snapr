@@ -80,7 +80,7 @@ fn set(app: &AppHandle, f: impl FnOnce(&mut Status)) {
     let _ = app.emit_to("main", events::UPDATE_STATUS, status);
 }
 
-fn recording(app: &AppHandle) -> bool {
+pub fn recording(app: &AppHandle) -> bool {
     let state = app.state::<State>();
     state.recording.lock().unwrap().is_some() || state.counting.load(Ordering::Relaxed)
 }
@@ -316,6 +316,12 @@ pub async fn install(app: &AppHandle) {
             s.error = Some(e);
         }),
     }
+}
+
+pub fn relaunch() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(exe).arg(AFTER).arg(std::process::id().to_string()).spawn().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn handoff() {

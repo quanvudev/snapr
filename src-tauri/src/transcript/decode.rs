@@ -3,14 +3,15 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ort::environment::Environment;
-use ort::session::{Session, SessionInputValue};
 use ort::value::{DynValue, Tensor};
 use serde_json::Value;
 
 use super::{ALREADY_ENGLISH, Segment};
 use super::mel::{Mel, N_FRAMES, N_SAMPLES, SAMPLE_RATE};
 use super::tokens::Tokens;
+use crate::onnx::{Feed, Runner, Workload};
 use crate::queue::CANCELLED;
+use crate::whisper::{CPU_FILES, GPU_FILES};
 
 const MAX_WINDOW_TOKENS: usize = 224;
 pub const WINDOW_SAMPLES: usize = N_SAMPLES;
@@ -40,8 +41,9 @@ struct Ids {
 }
 
 struct Model {
-    encoder: Session,
-    decoder: Session,
+    encoder: Runner,
+    decoder: Runner,
+    decoder_inputs: Vec<String>,
     heads: usize,
     head_dim: usize,
     n_mels: usize,
@@ -104,9 +106,6 @@ impl Ids {
     }
 }
 
-fn session(env: &Environment, path: &Path) -> Result<Session, String> {
-    Session::builder(env).map_err(err)?.commit_from_file(path).map_err(err)
-}
 
 fn argmax(scores: &[f32]) -> usize {
     scores.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i)
@@ -166,9 +165,19 @@ impl Model {
         let config = read_json(&dir.join("config.json"))?;
         let preprocessor = read_json(&dir.join("preprocessor_config.json"))?;
         let heads = int(&config, "decoder_attention_heads")? as usize;
+        let gpu = crate::onnx::gpu_for(Workload::Whisper).is_some() && GPU_FILES.iter().all(|f| dir.join(f).is_file());
+        let [encoder, decoder] = if gpu { GPU_FILES } else { CPU_FILES };
+        let load = || -> Result<(Runner, Runner), String> {
+            Ok((
+                crate::onnx::runner(env, &dir.join(encoder), Workload::Whisper)?,
+                crate::onnx::runner(env, &dir.join(decoder), Workload::Whisper)?,
+            ))
+        };
+        let (encoder, decoder) = if gpu { load()? } else { crate::onnx::on_cpu(load)? };
         Ok(Self {
-            encoder: session(env, &dir.join("encoder.onnx"))?,
-            decoder: session(env, &dir.join("decoder.onnx"))?,
+            decoder_inputs: decoder.input_names(),
+            encoder,
+            decoder,
             heads,
             head_dim: int(&config, "d_model")? as usize / heads.max(1),
             n_mels: int(&preprocessor, "feature_size")? as usize,
@@ -176,33 +185,32 @@ impl Model {
     }
 
     fn encode(&mut self, features: Vec<f32>) -> Result<DynValue, String> {
-        let input = Tensor::from_array(([1, self.n_mels, N_FRAMES], features)).map_err(err)?;
-        let name = self.encoder.inputs().first().ok_or("encoder has no input")?.name().to_owned();
-        let outputs = self.encoder.run(vec![(name, SessionInputValue::from(input))]).map_err(err)?;
+        let input = Tensor::from_array(([1, self.n_mels, N_FRAMES], features)).map_err(err)?.into_dyn();
+        let name = self.encoder.input_names().into_iter().next().ok_or("encoder has no input")?;
+        let outputs = self.encoder.run(vec![(name, Feed::Owned(input))], &[])?;
         outputs.into_iter().next().map(|(_, v)| v).ok_or_else(|| "encoder has no output".into())
     }
 
     fn step(&mut self, ids: &[i64], hidden: &DynValue, cache: Option<&Cache>) -> Result<(Vec<f32>, Cache), String> {
-        let empty = Tensor::from_array(([1, self.heads, 0, self.head_dim], Vec::<f32>::new())).map_err(err)?;
-        let names: Vec<String> = self.decoder.inputs().iter().map(|i| i.name().to_owned()).collect();
-        let mut inputs: Vec<(String, SessionInputValue)> = Vec::with_capacity(names.len());
-        for name in names {
-            let value: SessionInputValue = match name.as_str() {
-                INPUT_IDS => Tensor::from_array(([1, ids.len()], ids.to_vec())).map_err(err)?.into(),
-                ENCODER_HIDDEN_STATES => hidden.into(),
-                USE_CACHE_BRANCH => Tensor::from_array(([1usize], vec![cache.is_some()])).map_err(err)?.into(),
+        let empty = Tensor::from_array(([1, self.heads, 0, self.head_dim], Vec::<f32>::new())).map_err(err)?.into_dyn();
+        let mut inputs: Vec<(String, Feed)> = Vec::with_capacity(self.decoder_inputs.len());
+        for name in &self.decoder_inputs {
+            let value = match name.as_str() {
+                INPUT_IDS => Feed::Owned(Tensor::from_array(([1, ids.len()], ids.to_vec())).map_err(err)?.into_dyn()),
+                ENCODER_HIDDEN_STATES => Feed::Ref(hidden),
+                USE_CACHE_BRANCH => Feed::Owned(Tensor::from_array(([1usize], vec![cache.is_some()])).map_err(err)?.into_dyn()),
                 past if past.starts_with(PAST_PREFIX) => {
                     let present = format!("{PRESENT_PREFIX}{}", &past[PAST_PREFIX.len()..]);
                     match cache.and_then(|c| c.get(&present)) {
-                        Some(value) => value.into(),
-                        None => (&empty).into(),
+                        Some(value) => Feed::Ref(value),
+                        None => Feed::Ref(&empty),
                     }
                 }
                 other => return Err(format!("unexpected decoder input {other}")),
             };
-            inputs.push((name, value));
+            inputs.push((name.clone(), value));
         }
-        let outputs = self.decoder.run(inputs).map_err(err)?;
+        let outputs = self.decoder.run(inputs, &[LOGITS])?;
         let mut logits = Vec::new();
         let mut present = Cache::new();
         for (name, value) in outputs {
@@ -330,4 +338,32 @@ pub fn detect(model_dir: &Path, pcm: &[f32]) -> Result<String, String> {
     let hidden = model.encode(mel.features(window))?;
     let lang = model.detect(&ids, &hidden)?;
     ids.code(lang).ok_or_else(|| "no language token".into())
+}
+
+#[cfg(test)]
+mod timing {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    #[ignore]
+    fn transcribes_video() {
+        let vars = ["SNAPR_VIDEO", "SNAPR_WHISPER_DIR", "SNAPR_ORT_DLL"].map(std::env::var);
+        let [Ok(video), Ok(model), Ok(dll)] = vars else { return };
+        let runtime = match std::env::var("SNAPR_ORT_EP").as_deref() {
+            Ok("cuda") => crate::onnx::Runtime::Cuda,
+            Ok("directml") => crate::onnx::Runtime::DirectMl,
+            _ => crate::onnx::Runtime::Cpu,
+        };
+        crate::onnx::init(&crate::onnx::Target { runtime, dll: PathBuf::from(dll), device: 0 }).unwrap();
+        let never = AtomicBool::new(false);
+        let pcm = crate::transcript::pcm(Path::new(&video), &never, &|_| {}, None).unwrap();
+        let started = std::time::Instant::now();
+        let (segments, language) = super::transcribe(Path::new(&model), "auto", false, &pcm, &|_| {}, &never).unwrap();
+        let seconds = pcm.len() as f32 / 16_000.0;
+        eprintln!("{seconds:.0} s of audio in {:?} ({language:?}, {} segments, gpu error {:?})", started.elapsed(), segments.len(), crate::onnx::gpu_error());
+        for segment in segments.iter().take(4) {
+            eprintln!("  {} {}", segment.start_ms, segment.text);
+        }
+    }
 }

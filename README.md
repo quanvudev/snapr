@@ -40,7 +40,7 @@
 
 **Transcripts and subtitles**
 - Transcribe the speech in a recording to an `.srt` file with a local Whisper model (Base, Small or Large v3 Turbo).
-- Edit the transcript in the viewer and burn it into a copy of the video as subtitles.
+- Edit the transcript in the viewer and burn it into a copy of the video as subtitles, with your choice of position, size, text colour and background (or outlined text with no background). Japanese, Chinese, Korean, Thai and Hindi subtitles use a Windows font that has their characters.
 - Translate subtitles into 38 languages on your machine with the optional HY-MT1.5 model (Vietnamese ⇄ English by default), or into English with Whisper; every translation is its own `.srt` track you can edit and export.
 
 **Gallery**
@@ -156,6 +156,16 @@ Turn it on in Settings → Action Ring and give it a hotkey or a mouse button. I
 ## AI models
 
 Text capture works out of the box with Windows OCR. PaddleOCR, Whisper and HY-MT1.5 are optional: Snapr downloads a model only when you turn on the feature that needs it, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
+
+**Hardware acceleration.** Settings → AI models detects your graphics card and can run the models on it instead of the processor. Auto (the default) uses the fastest runtime you have already downloaded and never downloads anything itself; CPU, DirectML and CUDA pick one explicitly. A new choice applies after Restart snapr, and if the card fails a task runs again on the processor.
+
+| Runtime | Download | Runs on the graphics card | Example on an RTX 5060 Ti |
+|---|---|---|---|
+| CPU | included | nothing | 8-minute video, Large v3 Turbo: 121 s |
+| DirectML (any recent card) | about 25 MB | PaddleOCR (6 to 7 times faster) | Whisper and translation stay on the processor |
+| CUDA (NVIDIA only) | about 1 GB | PaddleOCR, Whisper and HY-MT1.5 | same video: 16 s; 100 subtitle lines translated in 6.5 s instead of 45 s |
+
+With CUDA, Snapr also downloads a GPU version of the selected Whisper model (fp16, or q4f16 for Turbo). Translation now works on several subtitle lines at a time on every computer, which made it about a third faster on the processor too.
 
 HY-MT1.5 1.8B (about 1.4 GB, used for subtitle translation) is licensed by Tencent under the Tencent HY Community License, not an open source licence: it does not apply in the European Union, the United Kingdom or South Korea, and its output must not be used to improve other AI models. Snapr shows the licence and asks you to agree before the first download. Tencent is not affiliated with Snapr.
 

@@ -16,6 +16,8 @@ export type RingItem =
 export type OcrEngine = "windows" | "paddle";
 export type PaddleSize = "tiny" | "small" | "medium";
 export type WhisperModel = "base" | "small" | "turbo";
+export type Runtime = "cpu" | "directml" | "cuda";
+export type Acceleration = "auto" | Runtime;
 export type TranscriptLanguage = "auto" | "vi" | "en";
 export type Track = "original" | (string & {});
 export type RedactStyle = "black" | "pixelate";
@@ -51,6 +53,7 @@ export type Config = {
   text_capture: boolean;
   ocr_engine: OcrEngine;
   paddle_model: PaddleSize;
+  ai_acceleration: Acceleration;
   update_check: boolean;
   padding: { enabled: boolean; size: number; image: string; round: boolean; radius: number; wallpaper: boolean };
   redact: Redact;
@@ -64,9 +67,30 @@ export type Loaded = { config: Config; autostart: boolean; dir: string; first_ru
 export type PaddleProgress = { size: PaddleSize; done: number; total: number };
 export type PaddleStatus = { ready: PaddleSize[]; bytes: Record<PaddleSize, number>; downloading: PaddleProgress | null; runtime: boolean };
 export type PaddleDone = { size: PaddleSize; error: string | null };
-export type WhisperProgress = { model: WhisperModel; done: number; total: number };
-export type WhisperStatus = { ready: WhisperModel[]; bytes: Record<WhisperModel, number>; downloading: WhisperProgress | null };
-export type WhisperDone = { model: WhisperModel; error: string | null };
+export type WhisperProgress = { model: WhisperModel; gpu: boolean; done: number; total: number };
+export type WhisperStatus = {
+  ready: WhisperModel[];
+  bytes: Record<WhisperModel, number>;
+  gpu_ready: WhisperModel[];
+  gpu_bytes: Record<WhisperModel, number>;
+  downloading: WhisperProgress | null;
+};
+export type WhisperDone = { model: WhisperModel; gpu: boolean; error: string | null };
+export type Adapter = { index: number; name: string; vendor: number; memory: number };
+export type GpuRuntime = Exclude<Runtime, "cpu">;
+export type RuntimeStatus = { id: GpuRuntime; ready: boolean; bytes: number; disk: number };
+export type AccelerationProgress = { runtime: GpuRuntime; done: number; total: number };
+export type AccelerationDone = { runtime: GpuRuntime; error: string | null };
+export type AccelerationStatus = {
+  adapter: Adapter | null;
+  recommended: Runtime;
+  resolved: Runtime;
+  loaded: Runtime | null;
+  restart_needed: boolean;
+  runtimes: RuntimeStatus[];
+  downloading: AccelerationProgress | null;
+  error: string | null;
+};
 export type TranslateProgress = { done: number; total: number };
 export type TranslateStatus = { ready: boolean; bytes: number; downloading: TranslateProgress | null };
 export type TranslateDone = { error: string | null };
@@ -119,7 +143,8 @@ export type TaskSpec =
   | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
   | { kind: "transcribe"; path: string }
   | { kind: "translate"; path: string; target?: string | null }
-  | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize; track: Track };
+  | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize; style: SubtitleStyle; track: Track };
+export type SubtitleStyle = { text_color: string; background: string; opacity: number };
 
 export type CompressInfo = {
   width: number;
@@ -203,9 +228,18 @@ export const api = {
   onPaddleProgress: (cb: (p: PaddleProgress) => void) => listen<PaddleProgress>("paddle-progress", (e) => cb(e.payload)),
   onPaddleDone: (cb: (d: PaddleDone) => void) => listen<PaddleDone>("paddle-done", (e) => cb(e.payload)),
   whisperStatus: () => invoke<WhisperStatus>("whisper_status"),
-  whisperDownload: (model: WhisperModel) => invoke("whisper_download", { model }),
+  whisperDownload: (model: WhisperModel, gpu = false) => invoke("whisper_download", { model, gpu }),
   whisperCancel: () => invoke("whisper_cancel"),
-  whisperDelete: (model: WhisperModel) => invoke("whisper_delete", { model }),
+  whisperDelete: (model: WhisperModel, gpu = false) => invoke("whisper_delete", { model, gpu }),
+  accelerationStatus: () => invoke<AccelerationStatus>("acceleration_status"),
+  accelerationDownload: (runtime: GpuRuntime) => invoke("acceleration_download", { runtime }),
+  accelerationCancel: () => invoke("acceleration_cancel"),
+  accelerationDelete: (runtime: GpuRuntime) => invoke("acceleration_delete", { runtime }),
+  accelerationRestart: () => invoke("acceleration_restart"),
+  onAccelerationProgress: (cb: (p: AccelerationProgress) => void) =>
+    listen<AccelerationProgress>("acceleration-progress", (e) => cb(e.payload)),
+  onAccelerationDone: (cb: (d: AccelerationDone) => void) =>
+    listen<AccelerationDone>("acceleration-done", (e) => cb(e.payload)),
   onWhisperProgress: (cb: (p: WhisperProgress) => void) =>
     listen<WhisperProgress>("whisper-progress", (e) => cb(e.payload)),
   onWhisperDone: (cb: (d: WhisperDone) => void) => listen<WhisperDone>("whisper-done", (e) => cb(e.payload)),

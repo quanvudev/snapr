@@ -42,7 +42,7 @@ export function ModelCard({ title, description, store, children }: Props) {
       {progress ? (
         <div className="flex basis-full items-center gap-3">
           <Progress value={percent} className="flex-1">
-            <span className="text-sm">{t.modelDownloading.replace("{name}", labelOf(store, progress.id))}</span>
+            <span className="text-sm">{t.modelDownloading.replace("{name}", progress.label ?? labelOf(store, progress.id))}</span>
             <ProgressValue>{() => `${Math.round(percent)}%`}</ProgressValue>
           </Progress>
           <Button size="sm" variant="outline" onClick={store.cancel}>

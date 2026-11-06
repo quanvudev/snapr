@@ -14,6 +14,10 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const ENCODER_FILE: &str = "encoder.onnx";
 const DECODER_FILE: &str = "decoder.onnx";
+const GPU_ENCODER_FILE: &str = "encoder.gpu.onnx";
+const GPU_DECODER_FILE: &str = "decoder.gpu.onnx";
+pub const CPU_FILES: [&str; 2] = [ENCODER_FILE, DECODER_FILE];
+pub const GPU_FILES: [&str; 2] = [GPU_ENCODER_FILE, GPU_DECODER_FILE];
 const VOCAB_FILE: &str = "vocab.json";
 const CONFIG_FILE: &str = "config.json";
 const GENERATION_FILE: &str = "generation_config.json";
@@ -25,6 +29,7 @@ const THROTTLE: Duration = Duration::from_millis(100);
 struct Model {
     id: WhisperModel,
     files: [(&'static str, Remote); FILE_COUNT],
+    gpu: [Remote; 2],
 }
 
 const MODELS: [Model; MODEL_COUNT] = [
@@ -80,6 +85,18 @@ const MODELS: [Model; MODEL_COUNT] = [
                 },
             ),
         ],
+        gpu: [
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-base/resolve/1846881b6b3a3024392c1eea3ad983695bc23925/onnx/encoder_model_fp16.onnx",
+                sha256: "ffba51b20185377c1b89362b1128148d0132de936a32b200af973da2a11a5369",
+                bytes: 41_332_612,
+            },
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-base/resolve/1846881b6b3a3024392c1eea3ad983695bc23925/onnx/decoder_model_merged_fp16.onnx",
+                sha256: "2078fb08b753e3a74120e6a52446eef1b98f6152d1da43658731367a93fd71a4",
+                bytes: 104_727_818,
+            },
+        ],
     },
     Model {
         id: WhisperModel::Small,
@@ -132,6 +149,18 @@ const MODELS: [Model; MODEL_COUNT] = [
                     bytes: 339,
                 },
             ),
+        ],
+        gpu: [
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-small/resolve/36050c46d777d46dc4b5f43f6d90574fc38f8732/onnx/encoder_model_fp16.onnx",
+                sha256: "5549cd8666ff4b694ceb128bfa48b95bdcceec29075cf2c2212f90002cc058de",
+                bytes: 176_607_756,
+            },
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-small/resolve/36050c46d777d46dc4b5f43f6d90574fc38f8732/onnx/decoder_model_merged_fp16.onnx",
+                sha256: "22aba6c7f5193701cbe1519051b6ef097eb530ad6887b7093065ec59b830f61d",
+                bytes: 308_583_076,
+            },
         ],
     },
     Model {
@@ -186,6 +215,18 @@ const MODELS: [Model; MODEL_COUNT] = [
                 },
             ),
         ],
+        gpu: [
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo/resolve/360ebcde2559d60bb474678be3c1de9ef347d01a/onnx/encoder_model_q4f16.onnx",
+                sha256: "aafd3383f1aa372db0825a885730ebbbae7e34871ec0460428663c69641a63d0",
+                bytes: 369_974_078,
+            },
+            Remote {
+                url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo/resolve/360ebcde2559d60bb474678be3c1de9ef347d01a/onnx/decoder_model_merged_q4f16.onnx",
+                sha256: "45981cdd958a4c8e1447839850d2e6e27e30974ccbe31b4a1e5ebe9ad8965a5f",
+                bytes: 193_505_017,
+            },
+        ],
     },
 ];
 
@@ -195,6 +236,7 @@ static IN_USE: Mutex<Vec<WhisperModel>> = Mutex::new(Vec::new());
 
 pub struct Download {
     model: WhisperModel,
+    gpu: bool,
     cancel: Arc<AtomicBool>,
     done: Arc<AtomicU64>,
     total: u64,
@@ -203,6 +245,7 @@ pub struct Download {
 #[derive(Clone, Serialize)]
 pub struct Progress {
     model: WhisperModel,
+    gpu: bool,
     done: u64,
     total: u64,
 }
@@ -210,6 +253,7 @@ pub struct Progress {
 #[derive(Clone, Serialize)]
 struct Done {
     model: WhisperModel,
+    gpu: bool,
     error: Option<String>,
 }
 
@@ -217,6 +261,8 @@ struct Done {
 pub struct Status {
     ready: Vec<WhisperModel>,
     bytes: HashMap<WhisperModel, u64>,
+    gpu_ready: Vec<WhisperModel>,
+    gpu_bytes: HashMap<WhisperModel, u64>,
     downloading: Option<Progress>,
 }
 
@@ -252,6 +298,26 @@ fn pinned_bytes(model: WhisperModel) -> u64 {
     entry(model).files.iter().map(|(_, remote)| remote.bytes).sum()
 }
 
+fn gpu_bytes(model: WhisperModel) -> u64 {
+    entry(model).gpu.iter().map(|remote| remote.bytes).sum()
+}
+
+pub fn gpu_ready(app: &AppHandle, model: WhisperModel) -> bool {
+    let root = model_dir(app, model);
+    GPU_FILES.iter().all(|file| root.join(file).is_file())
+}
+
+fn remove_gpu(app: &AppHandle, model: WhisperModel) -> io::Result<()> {
+    let root = model_dir(app, model);
+    for file in GPU_FILES {
+        match fs::remove_file(root.join(file)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn dir(app: &AppHandle) -> PathBuf {
     app.path().app_local_data_dir().unwrap_or_default().join("whisper")
 }
@@ -284,7 +350,16 @@ fn fetch_model(app: &AppHandle, model: WhisperModel, fetch: &mut Fetch) -> Resul
     Ok(())
 }
 
-fn run(app: &AppHandle, model: WhisperModel, cancel: &AtomicBool, done: &AtomicU64, total: u64) -> Result<(), String> {
+fn fetch_gpu(app: &AppHandle, model: WhisperModel, fetch: &mut Fetch) -> Result<(), String> {
+    let target = model_dir(app, model);
+    fetch::clean(&target);
+    for (file, remote) in GPU_FILES.iter().zip(&entry(model).gpu) {
+        fetch.file(remote, &target.join(file))?;
+    }
+    Ok(())
+}
+
+fn run(app: &AppHandle, model: WhisperModel, gpu: bool, cancel: &AtomicBool, done: &AtomicU64, total: u64) -> Result<(), String> {
     let mut last = Instant::now() - THROTTLE;
     let mut fetch = Fetch {
         agent: fetch::agent(),
@@ -293,10 +368,17 @@ fn run(app: &AppHandle, model: WhisperModel, cancel: &AtomicBool, done: &AtomicU
         report: Box::new(|done| {
             if last.elapsed() >= THROTTLE {
                 last = Instant::now();
-                let _ = app.emit_to("main", events::WHISPER_PROGRESS, Progress { model, done, total });
+                let _ = app.emit_to("main", events::WHISPER_PROGRESS, Progress { model, gpu, done, total });
             }
         }),
     };
+    if gpu {
+        let result = fetch_gpu(app, model, &mut fetch);
+        if result.is_err() {
+            let _ = remove_gpu(app, model);
+        }
+        return result;
+    }
     let result = fetch_model(app, model, &mut fetch);
     if result.is_err() {
         let _ = fs::remove_dir_all(model_dir(app, model));
@@ -308,37 +390,49 @@ fn run(app: &AppHandle, model: WhisperModel, cancel: &AtomicBool, done: &AtomicU
 pub fn whisper_status(app: AppHandle, state: tauri::State<State>) -> Status {
     let ready = ALL.into_iter().filter(|&m| self::ready(&app, m)).collect();
     let bytes = ALL.into_iter().map(|m| (m, pinned_bytes(m))).collect();
+    let gpu_ready = ALL.into_iter().filter(|&m| self::gpu_ready(&app, m)).collect();
+    let gpu_bytes = ALL.into_iter().map(|m| (m, self::gpu_bytes(m))).collect();
     let downloading = state.whisper_download.lock().unwrap().as_ref().map(|d| Progress {
         model: d.model,
+        gpu: d.gpu,
         done: d.done.load(Ordering::Relaxed),
         total: d.total,
     });
-    Status { ready, bytes, downloading }
+    Status { ready, bytes, gpu_ready, gpu_bytes, downloading }
 }
 
 #[tauri::command]
-pub fn whisper_download(app: AppHandle, state: tauri::State<State>, model: WhisperModel) -> Result<(), String> {
+pub fn whisper_download(
+    app: AppHandle,
+    state: tauri::State<State>,
+    model: WhisperModel,
+    gpu: Option<bool>,
+) -> Result<(), String> {
+    let gpu = gpu.unwrap_or(false);
     let mut slot = state.whisper_download.lock().unwrap();
     if slot.is_some() {
         return Err("a download is already running".into());
     }
-    if ready(&app, model) {
+    if gpu && !ready(&app, model) {
+        return Err(crate::transcript::MODEL_MISSING.into());
+    }
+    if if gpu { gpu_ready(&app, model) } else { ready(&app, model) } {
         return Ok(());
     }
     let cancel = Arc::new(AtomicBool::new(false));
     let done = Arc::new(AtomicU64::new(0));
-    let total = total(&app, model);
-    *slot = Some(Download { model, cancel: cancel.clone(), done: done.clone(), total });
+    let total = if gpu { gpu_bytes(model) } else { total(&app, model) };
+    *slot = Some(Download { model, gpu, cancel: cancel.clone(), done: done.clone(), total });
     drop(slot);
     std::thread::spawn(move || {
-        let result = run(&app, model, &cancel, &done, total);
+        let result = run(&app, model, gpu, &cancel, &done, total);
         let error = match result {
             Err(_) if cancel.load(Ordering::Relaxed) => None,
             Err(e) => Some(e),
             Ok(()) => None,
         };
         app.state::<State>().whisper_download.lock().unwrap().take();
-        let _ = app.emit_to("main", events::WHISPER_DONE, Done { model, error });
+        let _ = app.emit_to("main", events::WHISPER_DONE, Done { model, gpu, error });
     });
     Ok(())
 }
@@ -351,7 +445,12 @@ pub fn whisper_cancel(state: tauri::State<State>) {
 }
 
 #[tauri::command]
-pub fn whisper_delete(app: AppHandle, state: tauri::State<State>, model: WhisperModel) -> Result<(), String> {
+pub fn whisper_delete(
+    app: AppHandle,
+    state: tauri::State<State>,
+    model: WhisperModel,
+    gpu: Option<bool>,
+) -> Result<(), String> {
     let paddle_busy = state.download.lock().unwrap().is_some();
     let translate_busy = state.translate_download.lock().unwrap().is_some();
     let download = state.whisper_download.lock().unwrap();
@@ -360,6 +459,9 @@ pub fn whisper_delete(app: AppHandle, state: tauri::State<State>, model: Whisper
     }
     if IN_USE.lock().unwrap().contains(&model) {
         return Err("this model is in use".into());
+    }
+    if gpu.unwrap_or(false) {
+        return remove_gpu(&app, model).map_err(|e| e.to_string());
     }
     let removed = match fs::remove_dir_all(model_dir(&app, model)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e.to_string()),

@@ -257,6 +257,8 @@ pub struct Config {
     pub whisper_model: WhisperModel,
     #[serde(default = "default_transcript_language")]
     pub transcript_language: String,
+    #[serde(default = "default_acceleration")]
+    pub ai_acceleration: String,
     pub update_check: bool,
     pub padding: Padding,
     pub redact: Redact,
@@ -270,6 +272,30 @@ fn default_mic() -> String {
 
 fn default_transcript_language() -> String {
     TRANSCRIPT_AUTO.into()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Acceleration {
+    Auto,
+    Cpu,
+    DirectMl,
+    Cuda,
+}
+
+impl Acceleration {
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "cpu" => Self::Cpu,
+            "directml" => Self::DirectMl,
+            "cuda" => Self::Cuda,
+            _ => Self::Auto,
+        }
+    }
+}
+
+fn default_acceleration() -> String {
+    "auto".into()
 }
 
 fn default_quality() -> String {
@@ -351,6 +377,7 @@ impl Default for Config {
             hymt_license_accepted: false,
             whisper_model: WhisperModel::Small,
             transcript_language: default_transcript_language(),
+            ai_acceleration: default_acceleration(),
             update_check: true,
             padding: Padding::default(),
             redact: Redact::default(),
@@ -411,6 +438,10 @@ impl Config {
         }
     }
 
+    pub fn acceleration(&self) -> Acceleration {
+        Acceleration::parse(&self.ai_acceleration)
+    }
+
     pub fn quality(&self) -> Quality {
         Quality::parse(&self.record_quality).unwrap_or_default()
     }
@@ -421,5 +452,20 @@ impl Config {
             Some(rest) => dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches('\\')),
             None => PathBuf::from(raw),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn acceleration_defaults_to_auto() {
+        let old: Config = toml::from_str("output_dir = \"~/Pictures/snapr\"").unwrap();
+        assert_eq!(old.acceleration(), Acceleration::Auto);
+        let unknown = Config { ai_acceleration: "tpu".into(), ..Config::default() };
+        assert_eq!(unknown.acceleration(), Acceleration::Auto);
+        let cuda = Config { ai_acceleration: "cuda".into(), ..Config::default() };
+        assert_eq!(cuda.acceleration(), Acceleration::Cuda);
     }
 }
