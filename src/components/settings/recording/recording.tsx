@@ -6,6 +6,7 @@ import { SettingsCard } from "../settings-card";
 import { AutoCompressRow } from "./auto-compress-row";
 import { AutoTranscribeRow } from "./auto-transcribe-row";
 import { AutoTranslateRow } from "./auto-translate-row";
+import { CameraBlurRow } from "./camera-blur-row";
 import { CountdownRow } from "./countdown-row";
 import { FpsRow } from "./fps-row";
 import { QualityRow } from "./quality-row";
@@ -20,6 +21,10 @@ export function Recording() {
         <FpsRow />
         <QualityRow />
         <CountdownRow />
+      </SettingsCard>
+      <SectionHeading>{t.camera}</SectionHeading>
+      <SettingsCard>
+        <CameraBlurRow />
       </SettingsCard>
       <SectionHeading>{t.afterRecording}</SectionHeading>
       <SettingsCard>

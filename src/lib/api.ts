@@ -5,6 +5,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type RecordMode = "fullscreen" | "window" | "area";
+export type CameraEffect = "none" | "blur" | "image";
+export type CameraLook = {
+  strength: number;
+  smoothing: number;
+  edge: number;
+  feather: number;
+  wrap: number;
+  wrap_radius: number;
+};
 
 export type HotkeyMode = "fixed" | "manual";
 export type Hotkeys = { mode: HotkeyMode; modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string; manual: string[] };
@@ -50,6 +59,14 @@ export type Config = {
   record_camera: string;
   record_speaker: string;
   record_denoise: boolean;
+  record_camera_effect: CameraEffect;
+  record_camera_image: string;
+  record_blur_strength: number;
+  record_blur_smoothing: number;
+  record_bg_edge: number;
+  record_bg_feather: number;
+  record_bg_wrap: number;
+  record_bg_wrap_radius: number;
   record_mode: RecordMode;
   text_capture: boolean;
   ocr_engine: OcrEngine;
@@ -121,6 +138,9 @@ export type PanelState = {
   camera: string;
   speaker: string;
   denoise: boolean;
+  effect: CameraEffect;
+  camera_image: string;
+  look: CameraLook;
   mode: RecordMode;
   started_ms: number | null;
   paused_total_ms: number;
@@ -284,8 +304,15 @@ export const api = {
   recordPanelState: () => invoke<PanelState>("record_panel_state"),
   recordInputs: () => invoke<InputDevice[]>("record_inputs"),
   recordOutputs: () => invoke<InputDevice[]>("record_outputs"),
-  recordSelect: (mic: string, camera: string, speaker: string, mode: RecordMode, denoise: boolean) =>
-    invoke("record_select", { mic, camera, speaker, mode, denoise }),
+  recordSelect: (
+    mic: string,
+    camera: string,
+    speaker: string,
+    mode: RecordMode,
+    denoise: boolean,
+    effect: CameraEffect,
+  ) => invoke("record_select", { mic, camera, speaker, mode, denoise, effect }),
+  cameraBackground: (path: string) => invoke<ArrayBuffer>("camera_background", { path }),
   recordPanelFit: (width: number, height: number) => invoke("record_panel_fit", { width, height }),
   recordStart: () => invoke("record_start"),
   recordClose: () => invoke("record_close"),

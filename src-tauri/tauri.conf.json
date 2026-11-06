@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Snapr",
         "width": 480,
         "height": 300,

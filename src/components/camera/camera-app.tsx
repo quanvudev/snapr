@@ -1,9 +1,27 @@
-import { useEffect, useRef } from "react";
-import { api } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { CameraFeed } from "@/components/camera-feed";
+import { api, type CameraEffect, type CameraLook } from "@/lib/api";
 import "@/App.css";
 
+const params = new URLSearchParams(window.location.search);
+const EFFECTS: CameraEffect[] = ["none", "blur", "image"];
+const DEFAULT_LOOK: CameraLook = { strength: 4, smoothing: 50, edge: 30, feather: 1, wrap: 50, wrap_radius: 4 };
+
+function initialLook(): CameraLook {
+  try {
+    return { ...DEFAULT_LOOK, ...JSON.parse(params.get("look") ?? "{}") };
+  } catch {
+    return DEFAULT_LOOK;
+  }
+}
+
 export function CameraApp() {
-  const video = useRef<HTMLVideoElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [effect, setEffect] = useState<CameraEffect>(
+    EFFECTS.find((e) => e === params.get("effect")) ?? "none",
+  );
+  const [image, setImage] = useState(params.get("image") ?? "");
+  const [look, setLook] = useState(initialLook);
 
   useEffect(() => {
     for (const el of [document.documentElement, document.body, document.getElementById("root")]) {
@@ -20,7 +38,7 @@ export function CameraApp() {
       current = device;
       stream?.getTracks().forEach((track) => track.stop());
       stream = null;
-      if (video.current) video.current.srcObject = null;
+      setStream(null);
       if (!device) return;
       try {
         const next = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: device } } });
@@ -29,14 +47,19 @@ export function CameraApp() {
           return;
         }
         stream = next;
-        if (video.current) video.current.srcObject = next;
+        setStream(next);
       } catch {
         current = null;
       }
     };
 
-    open(new URLSearchParams(window.location.search).get("device") ?? "");
-    const unlisten = api.onRecordPanel((s) => open(s.camera));
+    open(params.get("device") ?? "");
+    const unlisten = api.onRecordPanel((s) => {
+      open(s.camera);
+      setEffect(s.effect);
+      setImage(s.camera_image);
+      setLook(s.look);
+    });
     return () => {
       alive = false;
       unlisten.then((f) => f());
@@ -52,13 +75,7 @@ export function CameraApp() {
           className="size-full overflow-hidden rounded-full"
           style={{ maskImage: "radial-gradient(circle closest-side, #000 calc(100% - 2px), transparent 100%)" }}
         >
-          <video
-            ref={video}
-            autoPlay
-            muted
-            playsInline
-            className="pointer-events-none size-full scale-y-[1.04] -scale-x-[1.04] object-cover"
-          />
+          <CameraFeed stream={stream} effect={effect} options={look} image={image} />
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ export function SliderField({
   max,
   unit,
   onCommit,
+  onDraft,
 }: {
   label: string;
   value: number;
@@ -15,6 +16,7 @@ export function SliderField({
   max: number;
   unit: string;
   onCommit: (value: number) => void;
+  onDraft?: (value: number) => void;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -28,7 +30,10 @@ export function SliderField({
         min={min}
         max={max}
         value={[draft]}
-        onValueChange={(v) => setDraft(pick(v))}
+        onValueChange={(v) => {
+          setDraft(pick(v));
+          onDraft?.(pick(v));
+        }}
         onValueCommitted={(v) => {
           const n = pick(v);
           if (n !== value) onCommit(n);

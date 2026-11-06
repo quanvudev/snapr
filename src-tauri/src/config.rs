@@ -137,6 +137,55 @@ pub enum RecordMode {
     Area,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct CameraLook {
+    pub strength: u32,
+    pub smoothing: u32,
+    pub edge: u32,
+    pub feather: u32,
+    pub wrap: u32,
+    pub wrap_radius: u32,
+}
+
+impl Default for CameraLook {
+    fn default() -> Self {
+        Config::default().camera_look()
+    }
+}
+
+fn default_blur_strength() -> u32 {
+    4
+}
+
+fn default_blur_smoothing() -> u32 {
+    50
+}
+
+fn default_bg_edge() -> u32 {
+    30
+}
+
+fn default_bg_feather() -> u32 {
+    1
+}
+
+fn default_bg_wrap() -> u32 {
+    50
+}
+
+fn default_bg_wrap_radius() -> u32 {
+    4
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CameraEffect {
+    #[default]
+    None,
+    Blur,
+    Image,
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OcrEngine {
@@ -235,6 +284,22 @@ pub struct Config {
     #[serde(default)]
     pub record_speaker: String,
     pub record_denoise: bool,
+    #[serde(default)]
+    pub record_camera_effect: CameraEffect,
+    #[serde(default)]
+    pub record_camera_image: String,
+    #[serde(default = "default_blur_strength")]
+    pub record_blur_strength: u32,
+    #[serde(default = "default_blur_smoothing")]
+    pub record_blur_smoothing: u32,
+    #[serde(default = "default_bg_edge")]
+    pub record_bg_edge: u32,
+    #[serde(default = "default_bg_feather")]
+    pub record_bg_feather: u32,
+    #[serde(default = "default_bg_wrap")]
+    pub record_bg_wrap: u32,
+    #[serde(default = "default_bg_wrap_radius")]
+    pub record_bg_wrap_radius: u32,
     #[serde(default)]
     pub record_mode: RecordMode,
     #[serde(default = "default_quality")]
@@ -369,6 +434,14 @@ impl Default for Config {
             record_camera: String::new(),
             record_speaker: String::new(),
             record_denoise: true,
+            record_camera_effect: CameraEffect::None,
+            record_camera_image: String::new(),
+            record_blur_strength: default_blur_strength(),
+            record_blur_smoothing: default_blur_smoothing(),
+            record_bg_edge: default_bg_edge(),
+            record_bg_feather: default_bg_feather(),
+            record_bg_wrap: default_bg_wrap(),
+            record_bg_wrap_radius: default_bg_wrap_radius(),
             record_mode: RecordMode::Fullscreen,
             record_quality: default_quality(),
             record_compress: false,
@@ -418,6 +491,24 @@ impl Config {
             .unwrap_or_default();
         let _ = std::fs::create_dir_all(cfg.dir());
         cfg
+    }
+
+    pub fn camera_effect(&self) -> CameraEffect {
+        match self.record_camera_effect {
+            CameraEffect::Image if self.record_camera_image.is_empty() => CameraEffect::None,
+            effect => effect,
+        }
+    }
+
+    pub fn camera_look(&self) -> CameraLook {
+        CameraLook {
+            strength: self.record_blur_strength.clamp(1, 10),
+            smoothing: self.record_blur_smoothing.min(90),
+            edge: self.record_bg_edge.clamp(10, 60),
+            feather: self.record_bg_feather.min(4),
+            wrap: self.record_bg_wrap.min(100),
+            wrap_radius: self.record_bg_wrap_radius.clamp(1, 10),
+        }
     }
 
     pub fn fps(&self) -> u32 {
@@ -472,6 +563,35 @@ mod tests {
         assert_eq!(unknown.acceleration(), Acceleration::Auto);
         let cuda = Config { ai_acceleration: "cuda".into(), ..Config::default() };
         assert_eq!(cuda.acceleration(), Acceleration::Cuda);
+    }
+
+    #[test]
+    fn camera_effect_defaults_to_none() {
+        let old: Config = toml::from_str("").unwrap();
+        assert_eq!(old.record_camera_effect, CameraEffect::None);
+        let blur: Config = toml::from_str("record_camera_effect = \"blur\"").unwrap();
+        assert_eq!(blur.record_camera_effect, CameraEffect::Blur);
+        assert_eq!(
+            old.camera_look(),
+            CameraLook { strength: 4, smoothing: 50, edge: 30, feather: 1, wrap: 50, wrap_radius: 4 }
+        );
+        let wild: Config = toml::from_str(
+            "record_blur_strength = 99\nrecord_blur_smoothing = 100\nrecord_bg_edge = 99\nrecord_bg_feather = 9\nrecord_bg_wrap = 200\nrecord_bg_wrap_radius = 50",
+        )
+        .unwrap();
+        assert_eq!(
+            wild.camera_look(),
+            CameraLook { strength: 10, smoothing: 90, edge: 60, feather: 4, wrap: 100, wrap_radius: 10 }
+        );
+        let low: Config = toml::from_str("record_blur_strength = 0\nrecord_bg_edge = 0\nrecord_bg_wrap_radius = 0").unwrap();
+        let look = low.camera_look();
+        assert_eq!((look.strength, look.edge, look.wrap_radius), (1, 10, 1));
+        let no_image: Config = toml::from_str("record_camera_effect = \"image\"").unwrap();
+        assert_eq!(no_image.camera_effect(), CameraEffect::None);
+        let image: Config =
+            toml::from_str("record_camera_effect = \"image\"
+record_camera_image = \"C:/bg.png\"").unwrap();
+        assert_eq!(image.camera_effect(), CameraEffect::Image);
     }
 
     #[test]

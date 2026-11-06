@@ -28,7 +28,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { api, type InputDevice, type PanelState, type RecordMode } from "@/lib/api";
+import { CameraFeed } from "@/components/camera-feed";
+import { api, type CameraEffect, type CameraLook, type InputDevice, type PanelState, type RecordMode } from "@/lib/api";
 import type { Strings } from "@/lib/i18n";
 
 type Camera = { id: string; name: string };
@@ -69,8 +70,20 @@ function useCameras() {
   return { cameras, error, loaded };
 }
 
-function Preview({ device, onError }: { device: string; onError: () => void }) {
-  const video = useRef<HTMLVideoElement>(null);
+function Preview({
+  device,
+  effect,
+  options,
+  image,
+  onError,
+}: {
+  device: string;
+  effect: CameraEffect;
+  options: CameraLook;
+  image: string;
+  onError: () => void;
+}) {
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -83,24 +96,17 @@ function Preview({ device, onError }: { device: string; onError: () => void }) {
           return;
         }
         stream = next;
-        if (video.current) video.current.srcObject = next;
+        setStream(next);
       })
       .catch(() => alive && onError());
     return () => {
       alive = false;
       stream?.getTracks().forEach((track) => track.stop());
+      setStream(null);
     };
   }, [device]);
 
-  return (
-    <video
-      ref={video}
-      autoPlay
-      muted
-      playsInline
-      className="pointer-events-none size-full scale-y-[1.04] -scale-x-[1.04] object-cover"
-    />
-  );
+  return <CameraFeed stream={stream} effect={effect} options={options} image={image} />;
 }
 
 export function SetupPanel({ state, level, t }: { state: PanelState; level: number; t: Strings }) {
@@ -108,6 +114,7 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
   const [camera, setCamera] = useState(state.camera);
   const [speaker, setSpeaker] = useState(state.speaker);
   const [denoise, setDenoise] = useState(state.denoise);
+  const [effect, setEffect] = useState<CameraEffect>(state.effect);
   const [mode, setMode] = useState<RecordMode>(state.mode);
   const [inputs, setInputs] = useState<InputDevice[]>([]);
   const [outputs, setOutputs] = useState<InputDevice[]>([]);
@@ -158,8 +165,8 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
       first.current = false;
       return;
     }
-    api.recordSelect(mic, camera, speaker, mode, denoise);
-  }, [mic, camera, speaker, mode, denoise]);
+    api.recordSelect(mic, camera, speaker, mode, denoise, effect);
+  }, [mic, camera, speaker, mode, denoise, effect]);
 
   useEffect(() => {
     setFailed(false);
@@ -211,7 +218,13 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
             className="size-full overflow-hidden rounded-full"
             style={{ maskImage: "radial-gradient(circle closest-side, #000 calc(100% - 2px), transparent 100%)" }}
           >
-            <Preview device={camera} onError={() => setFailed(true)} />
+            <Preview
+              device={camera}
+              effect={effect}
+              options={state.look}
+              image={state.camera_image}
+              onError={() => setFailed(true)}
+            />
           </div>
         ) : (
           <div
@@ -394,6 +407,21 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{t.recBackground}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={effect} onValueChange={(v) => setEffect(v as CameraEffect)}>
+                <DropdownMenuRadioItem value="none" disabled={camera === ""}>
+                  {t.recBackgroundNone}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="blur" disabled={camera === ""}>
+                  {t.recBlur}
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="image" disabled={camera === "" || !state.camera_image}>
+                  {t.recBackgroundImage}
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

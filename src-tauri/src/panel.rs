@@ -1,12 +1,13 @@
 use crate::events;
-use crate::config::RecordMode;
+use crate::config::{CameraEffect, CameraLook, RecordMode};
 use crate::overlay::Rect;
 use crate::{audio, Action, State};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::webview::{PermissionKind, PermissionResponse};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowDisplayAffinity, SetWindowPos, WDA_EXCLUDEFROMCAPTURE,
@@ -21,6 +22,7 @@ const GAP: f64 = -32.0;
 const CAMERA_PAD: f64 = 28.0;
 const PREVIEW_CENTRE: f64 = 120.0;
 const MIC_LOST: &str = "mic_lost";
+const BACKGROUND_EXTS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "bmp"];
 
 #[derive(Clone, Copy, Default, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -41,6 +43,9 @@ pub struct PanelState {
     pub speaker: String,
     pub mode: RecordMode,
     pub denoise: bool,
+    pub effect: CameraEffect,
+    pub camera_image: String,
+    pub look: CameraLook,
     pub started_ms: Option<u64>,
     pub paused_total_ms: u64,
     pub paused_at_ms: Option<u64>,
@@ -102,6 +107,13 @@ fn work_area(app: &AppHandle) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32
     Some((area.position, area.size, monitor.scale_factor()))
 }
 
+pub fn allow_camera(_: Webview, kind: PermissionKind) -> PermissionResponse {
+    match kind {
+        PermissionKind::Camera => PermissionResponse::Allow,
+        _ => PermissionResponse::Default,
+    }
+}
+
 fn build(app: &AppHandle, label: &str, query: &str, (w, h): (f64, f64), focus: bool) -> Option<WebviewWindow> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(format!("index.html?{query}").into()))
         .title("Snapr")
@@ -114,10 +126,7 @@ fn build(app: &AppHandle, label: &str, query: &str, (w, h): (f64, f64), focus: b
         .focused(focus)
         .visible(false)
         .inner_size(w, h)
-        .on_permission_request(|_, kind| match kind {
-            PermissionKind::Camera => PermissionResponse::Allow,
-            _ => PermissionResponse::Default,
-        })
+        .on_permission_request(allow_camera)
         .build()
         .ok()
 }
@@ -207,7 +216,23 @@ fn build_camera(app: &AppHandle, device: &str) -> Option<WebviewWindow> {
     if let Some(window) = app.get_webview_window(CAMERA) {
         return Some(window);
     }
-    let query = format!("view=camera&device={}", encode(device));
+    let (effect, image, look) = {
+        let state = app.state::<State>();
+        let panel = state.panel.lock().unwrap();
+        (panel.state.effect, panel.state.camera_image.clone(), panel.state.look)
+    };
+    let look = serde_json::to_string(&look).unwrap_or_default();
+    let effect = match effect {
+        CameraEffect::None => "none",
+        CameraEffect::Blur => "blur",
+        CameraEffect::Image => "image",
+    };
+    let query = format!(
+        "view=camera&device={}&effect={effect}&image={}&look={}",
+        encode(device),
+        encode(&image),
+        encode(&look)
+    );
     let window = build(app, CAMERA, &query, (CAMERA_SIZE, CAMERA_SIZE), false)?;
     let handle = app.clone();
     window.on_window_event(move |event| {
@@ -228,10 +253,19 @@ pub fn open(app: &AppHandle) {
     if phase(app) != Phase::Closed {
         return;
     }
-    let (mic, camera, speaker, mode, denoise) = {
+    let (mic, camera, speaker, mode, denoise, effect, camera_image, look) = {
         let state = app.state::<State>();
         let cfg = state.cfg.read().unwrap();
-        (cfg.record_mic.clone(), cfg.record_camera.clone(), cfg.record_speaker.clone(), cfg.record_mode, cfg.record_denoise)
+        (
+            cfg.record_mic.clone(),
+            cfg.record_camera.clone(),
+            cfg.record_speaker.clone(),
+            cfg.record_mode,
+            cfg.record_denoise,
+            cfg.camera_effect(),
+            cfg.record_camera_image.clone(),
+            cfg.camera_look(),
+        )
     };
     let inputs = audio::inputs();
     let mic = if mic.is_empty() || mic == "default" || inputs.iter().any(|d| d.id == mic) { mic } else { "default".into() };
@@ -246,7 +280,18 @@ pub fn open(app: &AppHandle) {
     place_panel(app, &window, SETUP);
     swap_monitor(app, listen(app, &mic, "", false, denoise));
     update(app, |p| {
-        p.state = PanelState { phase: Phase::Setup, mic, camera, speaker, mode, denoise, ..PanelState::default() };
+        p.state = PanelState {
+            phase: Phase::Setup,
+            mic,
+            camera,
+            speaker,
+            mode,
+            denoise,
+            effect,
+            camera_image,
+            look,
+            ..PanelState::default()
+        };
     });
     let _ = window.show();
     let _ = window.set_focus();
@@ -371,6 +416,23 @@ pub fn record_inputs() -> Vec<Input> {
 }
 
 #[tauri::command]
+pub async fn camera_background(path: String) -> Result<tauri::ipc::Response, String> {
+    let path = std::path::PathBuf::from(path);
+    let image = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| BACKGROUND_EXTS.contains(&e.to_ascii_lowercase().as_str()));
+    if !image {
+        return Err("unsupported".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn record_outputs() -> Vec<Input> {
     audio::outputs().into_iter().map(|d| Input { id: d.id, name: d.name, default: d.default }).collect()
 }
@@ -383,6 +445,7 @@ pub async fn record_select(
     speaker: String,
     mode: RecordMode,
     denoise: bool,
+    effect: CameraEffect,
 ) -> Result<(), String> {
     if phase(&app) != Phase::Setup {
         return Err("recording already started".into());
@@ -397,6 +460,7 @@ pub async fn record_select(
         p.state.speaker = speaker;
         p.state.mode = mode;
         p.state.denoise = denoise;
+        p.state.effect = effect;
     });
     Ok(())
 }
@@ -408,13 +472,14 @@ pub fn record_start(app: AppHandle) -> Result<(), String> {
     }
     let (mic, camera, speaker) = choices(&app);
     let state = app.state::<State>();
-    let (mode, denoise) = {
+    let (mode, denoise, effect) = {
         let panel = state.panel.lock().unwrap();
-        (panel.state.mode, panel.state.denoise)
+        (panel.state.mode, panel.state.denoise, panel.state.effect)
     };
     {
         let mut cfg = state.cfg.write().unwrap();
         cfg.record_denoise = denoise;
+        cfg.record_camera_effect = effect;
         cfg.record_mic = mic;
         cfg.record_camera = camera;
         cfg.record_speaker = speaker;

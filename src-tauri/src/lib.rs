@@ -103,6 +103,9 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("thumb", gallery::thumb_scheme())
         .register_asynchronous_uri_scheme_protocol("media", gallery::media_scheme)
         .setup(|app| {
+            if let Some(main) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() {
+                tauri::WebviewWindowBuilder::from_config(app, &main)?.on_permission_request(panel::allow_camera).build()?;
+            }
             let handle = app.handle().clone();
             let path = app.path().app_config_dir()?.join("config.toml");
             let first_run = !path.exists();
@@ -167,6 +170,7 @@ pub fn run() {
             panel::record_outputs,
             panel::record_panel_fit,
             panel::record_select,
+            panel::camera_background,
             panel::record_start,
             panel::record_close,
             panel::record_pause,
