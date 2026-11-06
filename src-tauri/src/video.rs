@@ -75,21 +75,21 @@ fn output_size(width: u32, height: u32, target: Option<u32>) -> (u32, u32) {
     (out_width, out_height)
 }
 
-struct Source {
-    width: u32,
-    height: u32,
+pub(crate) struct Source {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
     duration_ms: u64,
-    fps: f64,
+    pub(crate) fps: f64,
     audio_bitrate: u32,
-    file: StorageFile,
-    profile: MediaEncodingProfile,
+    pub(crate) file: StorageFile,
+    pub(crate) profile: MediaEncodingProfile,
 }
 
-fn storage_file(path: &Path) -> windows::core::Result<StorageFile> {
+pub(crate) fn storage_file(path: &Path) -> windows::core::Result<StorageFile> {
     StorageFile::GetFileFromPathAsync(&HSTRING::from(path.as_os_str()))?.join()
 }
 
-fn source(path: &Path) -> Result<Source, String> {
+pub(crate) fn source(path: &Path) -> Result<Source, String> {
     let (width, height, duration_ms) = gif::probe(path)?;
     let read = || -> windows::core::Result<Source> {
         let file = storage_file(path)?;

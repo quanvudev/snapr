@@ -1,3 +1,5 @@
+use crate::State;
+use crate::library;
 use crate::queue::{self, CANCELLED, Progress, Task};
 use crate::video;
 use ::gif::{DisposalMethod, Repeat};
@@ -7,7 +9,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
     MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_PD_DURATION, MF_SOURCE_READER_ALL_STREAMS,
@@ -295,7 +297,7 @@ impl GifTask {
         if start_ms >= end_ms || end_ms > duration + END_SLACK_MS {
             return Err("invalid range".into());
         }
-        let out_dir = path.parent().ok_or("no output folder")?.to_path_buf();
+        let out_dir = library::images(&app.state::<State>().cfg.read().unwrap());
         Ok(GifTask { path, out_dir, start_ms, end_ms: end_ms.min(duration), width, fps })
     }
 
@@ -373,6 +375,7 @@ impl Task for GifTask {
     }
 
     fn run(&self, progress: &Progress, cancel: &AtomicBool) -> Result<Option<PathBuf>, String> {
+        std::fs::create_dir_all(&self.out_dir).map_err(|e| e.to_string())?;
         queue::write_part(&self.out_dir, &self.stem(), KIND, |part| {
             let file = File::create(part).map_err(|e| e.to_string())?;
             self.encode(file, progress, cancel)

@@ -36,7 +36,7 @@ xcap = "0.9"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 windows-capture = "2"
 cpal = "0.18"
-windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Storage_Streams", "Foundation", "Foundation_Collections", "Win32_System_WinRT", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Media_Transcoding", "Media_MediaProperties", "Storage", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_Graphics_Dxgi"] }
+windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Storage_Streams", "Foundation", "Foundation_Collections", "Win32_System_WinRT", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Media_Transcoding", "Media_Editing", "Media_MediaProperties", "Storage", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_Graphics_Dxgi"] }
 tauri-plugin-notification = "2"
 windows-core = "0.62"
 windows-future = "0.3.2"

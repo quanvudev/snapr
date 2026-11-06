@@ -140,6 +140,7 @@ export type TaskSpec =
       width: number | null;
       fps: number;
     }
+  | { kind: "trim"; path: string; start_ms: number; end_ms: number }
   | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
   | { kind: "transcribe"; path: string }
   | { kind: "translate"; path: string; target?: string | null }

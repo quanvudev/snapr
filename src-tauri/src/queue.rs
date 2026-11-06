@@ -2,8 +2,10 @@ use crate::events;
 use crate::State;
 use crate::capture;
 use crate::gif::GifTask;
+use crate::library;
 use crate::subtitle::{Position, Size, Style, SubtitleTask};
 use crate::transcript::{TranscribeTask, Track};
+use crate::trim::TrimTask;
 use crate::video::CompressTask;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -355,7 +357,8 @@ fn clean_parts(dir: &Path) {
 
 pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || {
-        clean_parts(&app.state::<State>().cfg.read().unwrap().dir());
+        let folders = library::folders(&app.state::<State>().cfg.read().unwrap());
+        folders.iter().for_each(|dir| clean_parts(dir));
         while let Some(item) = app.state::<State>().queue.next() {
             emit(&app);
             let result = item.task.run(&item.entry.progress, &item.entry.cancel);
@@ -402,6 +405,7 @@ pub enum TaskSpec {
         #[serde(default)]
         track: Track,
     },
+    Trim { path: String, start_ms: u64, end_ms: u64 },
 }
 
 impl TaskSpec {
@@ -416,6 +420,7 @@ impl TaskSpec {
             TaskSpec::Subtitle { path, position, size, style, track } => {
                 Box::new(SubtitleTask::validated(app, &path, position, size, &style, track)?)
             }
+            TaskSpec::Trim { path, start_ms, end_ms } => Box::new(TrimTask::validated(app, &path, start_ms, end_ms)?),
         })
     }
 }

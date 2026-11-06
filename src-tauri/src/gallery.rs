@@ -1,5 +1,6 @@
 use crate::State;
 use crate::capture;
+use crate::library;
 use crate::transcript::{self, Track};
 use image::{ImageFormat, RgbaImage};
 use serde::Serialize;
@@ -63,7 +64,7 @@ fn media(path: &Path) -> Option<(Kind, &'static str)> {
 }
 
 impl Kind {
-    fn of(path: &Path) -> Kind {
+    pub(crate) fn of(path: &Path) -> Kind {
         media(path).map_or(Kind::Other, |(kind, _)| kind)
     }
 }
@@ -122,7 +123,7 @@ fn list(dir: &Path, languages: &HashMap<String, String>) -> Vec<Item> {
         .filter(|path| is_sidecar(path))
         .filter_map(|path| sidecar_stem(&path))
         .collect();
-    let mut items: Vec<Item> = entries
+    entries
         .iter()
         .filter_map(|entry| {
             let path = entry.path();
@@ -147,12 +148,10 @@ fn list(dir: &Path, languages: &HashMap<String, String>) -> Vec<Item> {
                 .and_then(|dir| languages.get(&transcript::languages::key(&dir.join(entry.file_name()))).cloned());
             Some(Item { path: path.to_str()?.to_string(), date_ms, size: meta.len(), kind, transcript, translations, language })
         })
-        .collect();
-    items.sort_by_key(|item| std::cmp::Reverse(item.date_ms));
-    items
+        .collect()
 }
 
-fn plain(path: &Path) -> Option<PathBuf> {
+pub(crate) fn plain(path: &Path) -> Option<PathBuf> {
     let s = path.to_str()?;
     Some(match s.strip_prefix(r"\\?\UNC\") {
         Some(rest) => PathBuf::from(format!(r"\\{rest}")),
@@ -161,9 +160,10 @@ fn plain(path: &Path) -> Option<PathBuf> {
 }
 
 pub(crate) fn guard(app: &AppHandle, path: &str) -> Option<PathBuf> {
-    let dir = app.state::<State>().cfg.read().unwrap().dir().canonicalize().ok()?;
+    let folders = library::folders(&app.state::<State>().cfg.read().unwrap());
     let file = Path::new(path).canonicalize().ok()?;
-    if file.parent() != Some(dir.as_path()) || !file.is_file() {
+    let parent = file.parent()?;
+    if !file.is_file() || !folders.iter().filter_map(|dir| dir.canonicalize().ok()).any(|dir| dir == parent) {
         return None;
     }
     plain(&file)
@@ -175,8 +175,11 @@ fn guarded(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn gallery_list(app: AppHandle, state: tauri::State<State>) -> Vec<Item> {
-    let dir = state.cfg.read().unwrap().dir();
-    list(&dir, &transcript::languages::all(&app))
+    let folders = library::folders(&state.cfg.read().unwrap());
+    let languages = transcript::languages::all(&app);
+    let mut items: Vec<Item> = folders.iter().flat_map(|dir| list(dir, &languages)).collect();
+    items.sort_by_key(|item| std::cmp::Reverse(item.date_ms));
+    items
 }
 
 #[tauri::command]

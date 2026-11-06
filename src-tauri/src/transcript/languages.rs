@@ -57,6 +57,15 @@ pub fn set(app: &AppHandle, video: &Path, code: &str) {
     });
 }
 
+pub fn rename(app: &AppHandle, old: &Path, new: &Path) {
+    with(app, |map| {
+        if let Some(code) = map.remove(&key(old)) {
+            map.insert(key(new), code);
+            save(app, map);
+        }
+    });
+}
+
 pub fn forget(app: &AppHandle, video: &Path) {
     with(app, |map| {
         if map.remove(&key(video)).is_some() {

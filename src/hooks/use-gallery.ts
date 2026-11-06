@@ -6,6 +6,7 @@ import { fileName, groupBy, isMp4, isViewable, matches, type Filter, type Period
 import {
   compressSpec,
   gifSpec,
+  trimSpec,
   loadCompressChoice,
   loadGifPreset,
   saveCompressChoice,
@@ -58,6 +59,7 @@ export function useGallery() {
   const [anchor, setAnchor] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<GalleryItem[] | null>(null);
   const [gifTarget, setGifTarget] = useState<GalleryItem | null>(null);
+  const [trimTarget, setTrimTarget] = useState<GalleryItem | null>(null);
   const [compressTarget, setCompressTarget] = useState<GalleryItem | null>(null);
   const [translateTarget, setTranslateTarget] = useState<GalleryItem | null>(null);
   const [subtitleTarget, setSubtitleTarget] = useState<SubtitleTarget | null>(null);
@@ -233,6 +235,11 @@ export function useGallery() {
     run(api.queueAdd(gifSpec(item.path, range.preset, range.startMs, range.endMs)));
   };
 
+  const trim = (item: GalleryItem, startMs: number, endMs: number) => {
+    setTrimTarget(null);
+    run(api.queueAdd(trimSpec(item.path, startMs, endMs)));
+  };
+
   const compress = (item: GalleryItem, choice: CompressChoice) => {
     setCompressTarget(null);
     saveCompressChoice(choice);
@@ -341,6 +348,8 @@ export function useGallery() {
     videosSelected: videos.length > 0,
     gifTarget,
     closeGif: () => setGifTarget(null),
+    trimTarget,
+    closeTrim: () => setTrimTarget(null),
     compressTarget,
     closeCompress: () => setCompressTarget(null),
     translateTarget,
@@ -374,6 +383,8 @@ export function useGallery() {
       pinSelected,
       openGif: (item: GalleryItem) => setGifTarget(item),
       exportGif,
+      openTrim: (item: GalleryItem) => setTrimTarget(item),
+      trim,
       exportGifSelected,
       openCompress: (item: GalleryItem) => setCompressTarget(item),
       compress,

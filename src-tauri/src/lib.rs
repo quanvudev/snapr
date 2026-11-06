@@ -11,6 +11,7 @@ mod gif;
 mod gpu;
 mod hotkeys;
 mod jobs;
+mod library;
 mod mouse;
 mod ocr;
 mod onnx;
@@ -30,6 +31,7 @@ mod toolbar;
 mod tray;
 mod transcript;
 mod translate;
+mod trim;
 mod update;
 mod video;
 mod whisper;
@@ -132,6 +134,7 @@ pub fn run() {
                 capture: Mutex::new(None),
                 queue: queue::Queue::default(),
             });
+            library::migrate(&handle);
             queue::spawn(handle.clone());
             tray::build_tray(&handle)?;
             hotkeys::apply(&handle);

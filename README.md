@@ -45,7 +45,7 @@
 
 **Gallery**
 - Browse every capture and recording by day, month or year, search by name, and open them in a built-in viewer.
-- Copy, pin or delete in bulk, extract text from a photo, export a video clip as a GIF, compress or transcribe videos, and follow the long-running work in a background task queue.
+- Copy, pin or delete in bulk, extract text from a photo, trim a video, export a clip as a GIF, compress or transcribe videos, and follow the long-running work in a background task queue.
 
 **And also**
 - Global hotkeys (keyboard or mouse buttons) and an Action Ring that puts every action one click away.
@@ -71,7 +71,7 @@ scoop install snapr
 
 ### First run
 
-Snapr opens a short setup the first time: pick where captures are saved (`Pictures\snapr` by default) and check the hotkeys. After that it lives in the system tray. Click the tray icon for its menu: Gallery, Settings, Open folder and the recording controls; closing the settings window only hides it.
+Snapr opens a short setup the first time: pick where captures are saved (`Pictures\snapr` by default) and check the hotkeys. Screenshots and GIFs go to its `Images` folder, recordings and their `.srt` subtitles to `Videos`. After that it lives in the system tray. Click the tray icon for its menu: Gallery, Settings, Open folder and the recording controls; closing the settings window only hides it.
 
 ### Hotkeys
 
@@ -140,10 +140,10 @@ Press the text hotkey and drag over any text. If the area contains a QR code its
 Open it from the tray. Captures are grouped by day, month or year and filtered by type or name.
 
 - Click a tile to open the viewer: `←` `→` to browse, `Ctrl+C` to copy, `P` to pin, `Delete` to delete, scroll or `+` `-` `0` to zoom.
-- Right-click a tile for more actions: Export GIF (trim, width and frame rate), Compress video, Transcribe, Translate subtitles, Export with subtitles, Extract text. Video tiles show a badge for each subtitle language they have.
+- Right-click a tile for more actions: Trim video (cut a recording to a range, keeping its sound and subtitles), Export GIF (trim, width and frame rate), Compress video, Transcribe, Translate subtitles, Export with subtitles, Extract text. Video tiles show a badge for each subtitle language they have.
 - Long-press or `Ctrl`-click to select several, `Shift`-click for a range, `Ctrl+A` for all, then act on them from the bar at the bottom.
 - In the viewer, `T` opens a video's transcript: click a line to jump to it, double-click to edit it, and switch between the original and its translations.
-- Long-running work (GIF, compression, transcription, translation, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
+- Long-running work (trimming, GIF, compression, transcription, translation, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
 
 ### Action Ring
 

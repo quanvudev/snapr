@@ -15,6 +15,7 @@ import { CompressDialog } from "./compress-dialog";
 import { DeleteDialog } from "./delete-dialog";
 import { GalleryGroup } from "./gallery-group";
 import { GifDialog } from "./gif-dialog";
+import { TrimDialog } from "./trim-dialog";
 import { SubtitleDialog } from "./subtitle-dialog";
 import { TranslateDialog } from "./translate-dialog";
 import { Viewer } from "./viewer";
@@ -60,7 +61,7 @@ export function Gallery() {
           {...g.viewer}
           items={g.items}
           actions={g.actions}
-          paused={!!g.pendingDelete || !!g.gifTarget || !!g.compressTarget || !!g.subtitleTarget || !!g.translateTarget}
+          paused={!!g.pendingDelete || !!g.gifTarget || !!g.trimTarget || !!g.compressTarget || !!g.subtitleTarget || !!g.translateTarget}
           text={g.text}
           onToggleText={g.toggleText}
           onCloseText={g.closeText}
@@ -222,6 +223,7 @@ export function Gallery() {
         </div>
       </div>
       <GifDialog item={g.gifTarget} onClose={g.closeGif} onExport={g.actions.exportGif} />
+      <TrimDialog item={g.trimTarget} onClose={g.closeTrim} onTrim={g.actions.trim} />
       <CompressDialog
         item={g.compressTarget}
         onClose={g.closeCompress}

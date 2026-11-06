@@ -5,6 +5,7 @@ export type Strings = (typeof T)["en"];
 
 export const TASK_KINDS: Record<string, { label: keyof Strings }> = {
   gif: { label: "taskGif" },
+  trim: { label: "taskTrim" },
   compress: { label: "taskCompress" },
   transcribe: { label: "taskTranscribe" },
   translate: { label: "taskTranslate" },
@@ -127,6 +128,10 @@ export function gifEstimate(video: { w: number; h: number }, rangeMs: number, pr
 
 export function gifSpec(path: string, preset: GifPreset, startMs: number, endMs: number | null): TaskSpec {
   return { kind: "gif", path, start_ms: startMs, end_ms: endMs, width: preset.width, fps: preset.fps };
+}
+
+export function trimSpec(path: string, startMs: number, endMs: number): TaskSpec {
+  return { kind: "trim", path, start_ms: startMs, end_ms: endMs };
 }
 
 export type SubtitlePreset = { position: SubtitlePosition; size: SubtitleSize; style: SubtitleStyle };

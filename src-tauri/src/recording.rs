@@ -57,7 +57,7 @@ pub(crate) fn record(app: &AppHandle, target: Target) -> bool {
     let state = app.state::<State>();
     let (dir, fps, quality) = {
         let cfg = state.cfg.read().unwrap();
-        (cfg.dir(), cfg.fps(), cfg.quality())
+        (crate::library::videos(&cfg), cfg.fps(), cfg.quality())
     };
     let proxy = state.proxy.lock().unwrap().clone();
     let mut capture = panel::audio(app);

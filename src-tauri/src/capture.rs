@@ -44,7 +44,7 @@ pub fn pad(img: &RgbaImage, p: u32, bg: Option<&DynamicImage>) -> RgbaImage {
 }
 
 pub fn write(img: &RgbaImage, cfg: &Config) -> Result<PathBuf, Box<dyn Error>> {
-    let dir = cfg.dir();
+    let dir = crate::library::images(cfg);
     std::fs::create_dir_all(&dir)?;
     let path = unique_path(&dir, "png");
     img.save(&path)?;

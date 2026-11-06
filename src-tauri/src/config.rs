@@ -264,6 +264,8 @@ pub struct Config {
     pub redact: Redact,
     pub hotkeys: Hotkeys,
     pub ring: Ring,
+    #[serde(default)]
+    pub folders_migrated: bool,
 }
 
 fn default_mic() -> String {
@@ -383,6 +385,7 @@ impl Default for Config {
             redact: Redact::default(),
             hotkeys: Hotkeys::default(),
             ring: Ring::default(),
+            folders_migrated: true,
         }
     }
 }
