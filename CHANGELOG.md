@@ -2,6 +2,22 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [1.13.0] - 2026-11-06
+
+### Added
+- Hardware acceleration for the local AI models (Settings → AI models). Snapr detects your graphics card and can run text recognition, transcription and translation on it instead of the processor. Auto, the default, uses the fastest runtime you already have and never downloads anything by itself; you can also pick CPU, DirectML or CUDA.
+- CUDA (NVIDIA cards, about 1 GB download) runs PaddleOCR, Whisper and HY-MT1.5 on the card: an 8-minute video transcribes with Large v3 Turbo in about 16 s instead of 2 minutes, and 100 subtitle lines translate in about 6.5 s instead of 45 s. Snapr also downloads a GPU version of the selected Whisper model when CUDA is in use.
+- DirectML (any recent graphics card, about 25 MB) makes PaddleOCR text recognition 6 to 7 times faster; transcription and translation stay on the processor.
+- A new runtime choice applies after Restart snapr, offered right on the page; it is refused while recording or while background tasks are running. If the graphics card fails, the task runs again on the processor and the page shows why.
+- Downloaded models also lists the GPU runtimes and Whisper GPU models with their sizes, so you can delete them; the runtime in use cannot be deleted until you switch and restart.
+- Export with subtitles lets you choose the text colour, the background colour and its opacity, or no background with outlined text. The preview shows the result and your choice is remembered.
+
+### Changed
+- Subtitle translation handles several lines at a time, about a third faster even without a graphics card.
+
+### Fixed
+- Japanese, Chinese, Korean, Thai and Hindi subtitles no longer show up as empty boxes in videos exported with subtitles.
+
 ## [1.12.0] - 2026-11-05
 
 ### Added
