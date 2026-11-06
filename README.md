@@ -31,7 +31,7 @@
 
 **Screen recording**
 - Record the full screen, a window or an area to MP4 (H.264), at 30 or 60 fps with three quality levels.
-- Microphone and system audio, an optional round webcam overlay, a 3-second countdown, pause and resume.
+- Microphone and system audio, with noise suppression that removes fan hum and keyboard noise from the microphone, an optional round webcam overlay, a 3-second countdown, pause and resume.
 - Optional automatic compression to 1080p or 720p after recording.
 
 **Text and QR codes**
@@ -45,7 +45,7 @@
 
 **Gallery**
 - Browse every capture and recording by day, month or year, search by name, and open them in a built-in viewer.
-- Copy, pin or delete in bulk, extract text from a photo, trim a video, export a clip as a GIF, compress or transcribe videos, and follow the long-running work in a background task queue.
+- Copy, pin or delete in bulk, extract text from a photo, remove the background of a photo, trim a video, export a clip as a GIF, compress or transcribe videos, and follow the long-running work in a background task queue.
 
 **And also**
 - Global hotkeys (keyboard or mouse buttons) and an Action Ring that puts every action one click away.
@@ -125,7 +125,7 @@ Settings → Capture → Redaction turns on **automatic redaction of full-screen
 ### Recording
 
 1. Press the recording hotkey (or use the Action Ring). A panel opens at the bottom of the screen.
-2. Choose the mode (full screen, window or area), the microphone and system audio, and a camera if you want a webcam bubble.
+2. Choose the mode (full screen, window or area), the microphone and system audio, and a camera if you want a webcam bubble. **Noise suppression** (on by default, in the audio menu) cleans fan, hum and keyboard noise from the microphone as you record; system audio is never changed.
 3. Click **Start**, then pick the window or drag the area. An area being recorded gets a thin border that is not recorded.
 4. Pause, resume, stop or discard from the panel or the tray menu. Pressing the hotkey again stops.
 
@@ -140,10 +140,10 @@ Press the text hotkey and drag over any text. If the area contains a QR code its
 Open it from the tray. Captures are grouped by day, month or year and filtered by type or name.
 
 - Click a tile to open the viewer: `←` `→` to browse, `Ctrl+C` to copy, `P` to pin, `Delete` to delete, scroll or `+` `-` `0` to zoom.
-- Right-click a tile for more actions: Trim video (cut a recording to a range, keeping its sound and subtitles), Export GIF (trim, width and frame rate), Compress video, Transcribe, Translate subtitles, Export with subtitles, Extract text. Video tiles show a badge for each subtitle language they have.
+- Right-click a tile for more actions: Remove background (a photo of a person, pet or object becomes a new `<name>_cutout.png` with a transparent background), Trim video (cut a recording to a range, keeping its sound and subtitles), Export GIF (trim, width and frame rate), Compress video, Transcribe, Translate subtitles, Export with subtitles, Extract text. Video tiles show a badge for each subtitle language they have.
 - Long-press or `Ctrl`-click to select several, `Shift`-click for a range, `Ctrl+A` for all, then act on them from the bar at the bottom.
 - In the viewer, `T` opens a video's transcript: click a line to jump to it, double-click to edit it, and switch between the original and its translations.
-- Long-running work (trimming, GIF, compression, transcription, translation, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
+- Long-running work (background removal, trimming, GIF, compression, transcription, translation, subtitles) runs in a background queue; the list icon next to the close button shows progress, history and retry.
 
 ### Action Ring
 
@@ -155,17 +155,19 @@ Turn it on in Settings → Action Ring and give it a hotkey or a mouse button. I
 
 ## AI models
 
-Text capture works out of the box with Windows OCR. PaddleOCR, Whisper and HY-MT1.5 are optional: Snapr downloads a model only when you turn on the feature that needs it, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
+Text capture works out of the box with Windows OCR. PaddleOCR, Whisper, HY-MT1.5 and BEN2 are optional: Snapr downloads a model only when you turn on the feature that needs it or click Download, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
 
 **Hardware acceleration.** Settings → AI models detects your graphics card and can run the models on it instead of the processor. Auto (the default) uses the fastest runtime you have already downloaded and never downloads anything itself; CPU, DirectML and CUDA pick one explicitly. A new choice applies after Restart snapr, and if the card fails a task runs again on the processor.
 
 | Runtime | Download | Runs on the graphics card | Example on an RTX 5060 Ti |
 |---|---|---|---|
 | CPU | included | nothing | 8-minute video, Large v3 Turbo: 121 s |
-| DirectML (any recent card) | about 25 MB | PaddleOCR (6 to 7 times faster) | Whisper and translation stay on the processor |
-| CUDA (NVIDIA only) | about 1 GB | PaddleOCR, Whisper and HY-MT1.5 | same video: 16 s; 100 subtitle lines translated in 6.5 s instead of 45 s |
+| DirectML (any recent card) | about 25 MB | PaddleOCR (6 to 7 times faster), BEN2 | background removal: 0.3 s instead of 6 s per photo; Whisper and translation stay on the processor |
+| CUDA (NVIDIA only) | about 1 GB | PaddleOCR, Whisper, HY-MT1.5 and BEN2 | same video: 16 s; 100 subtitle lines translated in 6.5 s instead of 45 s |
 
 With CUDA, Snapr also downloads a GPU version of the selected Whisper model (fp16, or q4f16 for Turbo). Translation now works on several subtitle lines at a time on every computer, which made it about a third faster on the processor too.
+
+BEN2 Base (about 223 MB, MIT licence, by Prama) removes photo backgrounds. It works best on people, pets and objects, not on screenshots of apps.
 
 HY-MT1.5 1.8B (about 1.4 GB, used for subtitle translation) is licensed by Tencent under the Tencent HY Community License, not an open source licence: it does not apply in the European Union, the United Kingdom or South Korea, and its output must not be used to improve other AI models. Snapr shows the licence and asks you to agree before the first download. Tencent is not affiliated with Snapr.
 

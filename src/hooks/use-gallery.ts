@@ -15,6 +15,7 @@ import {
   saveSubtitlePreset,
   subtitleSpec,
   transcribeSpec,
+  cutoutSpec,
   translateSpec,
   type CompressChoice,
   type GifRange,
@@ -285,6 +286,13 @@ export function useGallery() {
     })().catch((e) => reportTask(e));
   };
 
+  const cutoutAll = (targets: GalleryItem[]) => {
+    if (!targets.length) return;
+    (async () => {
+      for (const item of targets) await api.queueAdd(cutoutSpec(item.path));
+    })().catch((e) => reportTask(e));
+  };
+
   const deleteSelected = () => {
     if (selectedItems.length) setPendingDelete(selectedItems);
   };
@@ -415,6 +423,8 @@ export function useGallery() {
       },
       openTranslate: (item: GalleryItem) => setTranslateTarget(item),
       transcribeSelected: () => transcribeAll(videos),
+      removeBackground: (item: GalleryItem) => cutoutAll([item]),
+      removeBackgroundSelected: () => cutoutAll(photos),
       deleteSelected,
       remove: (item: GalleryItem) => setPendingDelete([item]),
     },

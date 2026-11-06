@@ -1,6 +1,7 @@
 use crate::events;
 use crate::State;
 use crate::capture;
+use crate::cutout::task::CutoutTask;
 use crate::gif::GifTask;
 use crate::library;
 use crate::subtitle::{Position, Size, Style, SubtitleTask};
@@ -20,7 +21,7 @@ pub const CANCELLED: &str = "cancelled";
 const THROTTLE: Duration = Duration::from_millis(100);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(3);
 const PART_SUFFIX: &str = ".part";
-const PART_EXTS: [&str; 3] = ["gif", "mp4", "srt"];
+const PART_EXTS: [&str; 4] = ["gif", "mp4", "srt", "png"];
 const HISTORY_LIMIT: usize = 50;
 
 pub trait Task: Send {
@@ -406,6 +407,7 @@ pub enum TaskSpec {
         track: Track,
     },
     Trim { path: String, start_ms: u64, end_ms: u64 },
+    Cutout { path: String },
 }
 
 impl TaskSpec {
@@ -421,6 +423,7 @@ impl TaskSpec {
                 Box::new(SubtitleTask::validated(app, &path, position, size, &style, track)?)
             }
             TaskSpec::Trim { path, start_ms, end_ms } => Box::new(TrimTask::validated(app, &path, start_ms, end_ms)?),
+            TaskSpec::Cutout { path } => Box::new(CutoutTask::validated(app, &path)?),
         })
     }
 }

@@ -10,6 +10,7 @@ export const TASK_KINDS: Record<string, { label: keyof Strings }> = {
   transcribe: { label: "taskTranscribe" },
   translate: { label: "taskTranslate" },
   subtitle: { label: "taskSubtitle" },
+  cutout: { label: "taskCutout" },
 };
 
 const TASK_ERRORS: Record<string, keyof Strings> = {
@@ -39,6 +40,10 @@ export function taskError(t: Strings, error: unknown) {
 
 export function transcribeSpec(path: string): TaskSpec {
   return { kind: "transcribe", path };
+}
+
+export function cutoutSpec(path: string): TaskSpec {
+  return { kind: "cutout", path };
 }
 
 export function translateSpec(path: string, target: string | null = null): TaskSpec {

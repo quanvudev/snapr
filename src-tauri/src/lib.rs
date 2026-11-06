@@ -2,6 +2,7 @@ mod audio;
 mod panel;
 mod capture;
 mod config;
+mod cutout;
 mod draw;
 mod events;
 mod fetch;
@@ -77,6 +78,7 @@ pub struct State {
     download: Mutex<Option<paddle::Download>>,
     whisper_download: Mutex<Option<whisper::Download>>,
     translate_download: Mutex<Option<translate::Download>>,
+    cutout_download: Mutex<Option<cutout::Download>>,
     runtime_download: Mutex<Option<onnx::Download>>,
     counting: AtomicBool,
     discard: AtomicBool,
@@ -122,6 +124,7 @@ pub fn run() {
                 download: Mutex::new(None),
                 whisper_download: Mutex::new(None),
                 translate_download: Mutex::new(None),
+                cutout_download: Mutex::new(None),
                 runtime_download: Mutex::new(None),
                 counting: AtomicBool::new(false),
                 discard: AtomicBool::new(false),
@@ -213,6 +216,10 @@ pub fn run() {
             translate::translate_download,
             translate::translate_cancel,
             translate::translate_delete,
+            cutout::cutout_status,
+            cutout::cutout_download,
+            cutout::cutout_cancel,
+            cutout::cutout_delete,
             whisper::whisper_cancel,
             whisper::whisper_delete,
             transcript::transcript_detect,

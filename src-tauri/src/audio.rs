@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use nnnoiseless::DenoiseState;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -13,6 +14,8 @@ const TICK: Duration = Duration::from_millis(10);
 const PRIME: usize = FRAMES * 4;
 const LIMIT: usize = PRIME + FRAMES * 2 * 2;
 const LEVEL_TICKS: u32 = 7;
+const PCM_SCALE: f32 = i16::MAX as f32;
+const _: () = assert!(FRAMES == DenoiseState::FRAME_SIZE);
 
 pub struct Device {
     pub id: String,
@@ -187,15 +190,29 @@ fn open(device: &cpal::Device, output: bool, source: Arc<Source>) -> Result<Stre
     Ok(stream)
 }
 
+fn suppress(state: Option<&mut DenoiseState<'static>>, stereo: &mut [f32]) {
+    let Some(state) = state else { return };
+    let mut input = [0.0f32; FRAMES];
+    let mut output = [0.0f32; FRAMES];
+    for (sample, [left, right]) in input.iter_mut().zip(stereo.as_chunks::<2>().0) {
+        *sample = (left + right) * 0.5 * PCM_SCALE;
+    }
+    state.process_frame(&mut output, &input);
+    for (frame, &sample) in stereo.as_chunks_mut::<2>().0.iter_mut().zip(&output) {
+        *frame = [sample / PCM_SCALE; 2];
+    }
+}
+
 struct Mixer {
     mic: Option<Arc<Source>>,
+    denoise: Option<Box<DenoiseState<'static>>>,
     system: Option<Arc<Source>>,
     chunks: Option<Sender<Chunk>>,
     stop: Arc<AtomicBool>,
 }
 
 impl Mixer {
-    fn run(self, level: impl Fn(f32), lost: impl Fn()) {
+    fn run(mut self, level: impl Fn(f32), lost: impl Fn()) {
         let mut mic = vec![0.0f32; FRAMES * 2];
         let mut system = vec![0.0f32; FRAMES * 2];
         let mut next = Instant::now() + TICK;
@@ -214,6 +231,7 @@ impl Mixer {
                 Some(source) => source.take(&mut mic),
                 None => mic.fill(0.0),
             }
+            suppress(self.denoise.as_deref_mut(), &mut mic);
             match &self.system {
                 Some(source) => source.take(&mut system),
                 None => system.fill(0.0),
@@ -254,6 +272,7 @@ impl Capture {
         mic: Option<String>,
         speaker: Option<String>,
         record: bool,
+        denoise: bool,
         level: impl Fn(f32) + Send + 'static,
         lost: impl Fn() + Send + 'static,
     ) -> Result<Capture, String> {
@@ -300,7 +319,8 @@ impl Capture {
                 }
             };
             let _ = ready.send(Ok(mic.is_some() || system.is_some()));
-            Mixer { mic, system, chunks: tx, stop: flag }.run(level, lost);
+            let denoise = (denoise && mic.is_some()).then(DenoiseState::new);
+            Mixer { mic, denoise, system, chunks: tx, stop: flag }.run(level, lost);
             drop(loopback);
             drop(streams);
         });
@@ -489,3 +509,55 @@ fn process_loopback(source: Arc<Source>) -> Result<Loopback, String> {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn noise(state: &mut (u64, f32)) -> Vec<f32> {
+        (0..FRAMES)
+            .flat_map(|_| {
+                state.0 = state.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let white = (state.0 >> 33) as f32 / (1u64 << 31) as f32 - 0.5;
+                state.1 = 0.9 * state.1 + 0.1 * white;
+                [state.1, state.1]
+            })
+            .collect()
+    }
+
+    fn rms(buffer: &[f32]) -> f32 {
+        (buffer.iter().map(|s| s * s).sum::<f32>() / buffer.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn suppresses_fan_noise() {
+        let mut seed = (1, 0.0);
+        let mut state = DenoiseState::new();
+        for _ in 0..100 {
+            suppress(Some(&mut state), &mut noise(&mut seed));
+        }
+        let mut before = 0.0;
+        let mut after = 0.0;
+        let frames = 200;
+        let start = Instant::now();
+        for _ in 0..frames {
+            let mut buffer = noise(&mut seed);
+            before += rms(&buffer);
+            suppress(Some(&mut state), &mut buffer);
+            assert!(buffer.as_chunks::<2>().0.iter().all(|[l, r]| l == r));
+            after += rms(&buffer);
+        }
+        let per_frame = start.elapsed() / frames;
+        println!("rms {:.4} -> {:.4}, {per_frame:?} per 10 ms frame", before / frames as f32, after / frames as f32);
+        assert!(after < before * 0.1);
+    }
+
+    #[test]
+    fn off_leaves_buffer_unchanged() {
+        let mut buffer = noise(&mut (7, 0.0));
+        let copy = buffer.clone();
+        suppress(None, &mut buffer);
+        assert_eq!(buffer, copy);
+    }
+}

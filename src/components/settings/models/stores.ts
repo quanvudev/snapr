@@ -2,6 +2,7 @@ import { useSettingsContext } from "@/components/settings-provider";
 import type { GpuRuntime, PaddleSize, WhisperModel } from "@/lib/api";
 import { RUNTIME_NAMES } from "./acceleration-card";
 import { PADDLE_SIZES, paddleLabels } from "./paddle-labels";
+import { CUTOUT_ID, CUTOUT_NAME } from "@/lib/cutout";
 import { HYMT_ID, HYMT_NAME } from "@/lib/hymt";
 import { mb, WHISPER_MODELS } from "./whisper-models";
 
@@ -128,5 +129,23 @@ export function useTranslateStore(askLicense: () => void): ModelStore {
     download: () => (cfg.hymt_license_accepted ? translator.download() : askLicense()),
     cancel: translator.cancel,
     remove: () => translator.remove(),
+  };
+}
+
+export function useCutoutStore(): ModelStore {
+  const { cutout } = useSettingsContext();
+  const { status, progress, error } = cutout;
+  return {
+    name: CUTOUT_NAME,
+    options: [{ id: CUTOUT_ID, label: CUTOUT_NAME, detail: status.bytes > 0 ? mb(status.bytes) : undefined }],
+    selected: CUTOUT_ID,
+    ready: status.ready ? [CUTOUT_ID] : [],
+    bytes: { [CUTOUT_ID]: status.bytes },
+    progress: progress && { id: CUTOUT_ID, done: progress.done, total: progress.total },
+    error: error ? { id: CUTOUT_ID, message: error } : null,
+    select: () => {},
+    download: () => cutout.download(),
+    cancel: cutout.cancel,
+    remove: () => cutout.remove(),
   };
 }

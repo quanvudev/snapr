@@ -49,6 +49,7 @@ export type Config = {
   record_mic: string;
   record_camera: string;
   record_speaker: string;
+  record_denoise: boolean;
   record_mode: RecordMode;
   text_capture: boolean;
   ocr_engine: OcrEngine;
@@ -94,6 +95,9 @@ export type AccelerationStatus = {
 export type TranslateProgress = { done: number; total: number };
 export type TranslateStatus = { ready: boolean; bytes: number; downloading: TranslateProgress | null };
 export type TranslateDone = { error: string | null };
+export type CutoutProgress = { done: number; total: number };
+export type CutoutStatus = { ready: boolean; bytes: number; downloading: CutoutProgress | null };
+export type CutoutDone = { error: string | null };
 export type Segment = { start_ms: number; end_ms: number; text: string };
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
 export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
@@ -116,6 +120,7 @@ export type PanelState = {
   mic: string;
   camera: string;
   speaker: string;
+  denoise: boolean;
   mode: RecordMode;
   started_ms: number | null;
   paused_total_ms: number;
@@ -144,6 +149,7 @@ export type TaskSpec =
   | { kind: "compress"; path: string; quality: Quality; height: CompressHeight }
   | { kind: "transcribe"; path: string }
   | { kind: "translate"; path: string; target?: string | null }
+  | { kind: "cutout"; path: string }
   | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize; style: SubtitleStyle; track: Track };
 export type SubtitleStyle = { text_color: string; background: string; opacity: number };
 
@@ -256,6 +262,12 @@ export const api = {
   onTranslateProgress: (cb: (p: TranslateProgress) => void) =>
     listen<TranslateProgress>("translate-progress", (e) => cb(e.payload)),
   onTranslateDone: (cb: (d: TranslateDone) => void) => listen<TranslateDone>("translate-done", (e) => cb(e.payload)),
+  cutoutStatus: () => invoke<CutoutStatus>("cutout_status"),
+  cutoutDownload: () => invoke("cutout_download"),
+  cutoutCancel: () => invoke("cutout_cancel"),
+  cutoutDelete: () => invoke("cutout_delete"),
+  onCutoutProgress: (cb: (p: CutoutProgress) => void) => listen<CutoutProgress>("cutout-progress", (e) => cb(e.payload)),
+  onCutoutDone: (cb: (d: CutoutDone) => void) => listen<CutoutDone>("cutout-done", (e) => cb(e.payload)),
   transcriptRead: (path: string, track: Track = "original") => invoke<Segment[] | null>("transcript_read", { path, track }),
   transcriptSave: (path: string, track: Track, segments: Segment[]) => invoke("transcript_save", { path, track, segments }),
   transcriptDetect: (path: string) => invoke<string | null>("transcript_detect", { path }),
@@ -272,8 +284,8 @@ export const api = {
   recordPanelState: () => invoke<PanelState>("record_panel_state"),
   recordInputs: () => invoke<InputDevice[]>("record_inputs"),
   recordOutputs: () => invoke<InputDevice[]>("record_outputs"),
-  recordSelect: (mic: string, camera: string, speaker: string, mode: RecordMode) =>
-    invoke("record_select", { mic, camera, speaker, mode }),
+  recordSelect: (mic: string, camera: string, speaker: string, mode: RecordMode, denoise: boolean) =>
+    invoke("record_select", { mic, camera, speaker, mode, denoise }),
   recordPanelFit: (width: number, height: number) => invoke("record_panel_fit", { width, height }),
   recordStart: () => invoke("record_start"),
   recordClose: () => invoke("record_close"),

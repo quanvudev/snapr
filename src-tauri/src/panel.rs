@@ -40,6 +40,7 @@ pub struct PanelState {
     pub camera: String,
     pub speaker: String,
     pub mode: RecordMode,
+    pub denoise: bool,
     pub started_ms: Option<u64>,
     pub paused_total_ms: u64,
     pub paused_at_ms: Option<u64>,
@@ -78,6 +79,10 @@ pub fn choices(app: &AppHandle) -> (String, String, String) {
     let state = app.state::<State>();
     let panel = state.panel.lock().unwrap();
     (panel.state.mic.clone(), panel.state.camera.clone(), panel.state.speaker.clone())
+}
+
+fn denoise(app: &AppHandle) -> bool {
+    app.state::<State>().panel.lock().unwrap().state.denoise
 }
 
 fn update(app: &AppHandle, f: impl FnOnce(&mut Panel)) {
@@ -127,7 +132,7 @@ fn encode(value: &str) -> String {
         .collect()
 }
 
-fn listen(app: &AppHandle, mic: &str, speaker: &str, record: bool) -> Option<audio::Capture> {
+fn listen(app: &AppHandle, mic: &str, speaker: &str, record: bool, denoise: bool) -> Option<audio::Capture> {
     let mic = (!mic.is_empty()).then(|| mic.to_string());
     let speaker = (!speaker.is_empty() && record).then(|| speaker.to_string());
     if mic.is_none() && speaker.is_none() {
@@ -138,6 +143,7 @@ fn listen(app: &AppHandle, mic: &str, speaker: &str, record: bool) -> Option<aud
         mic,
         speaker,
         record,
+        denoise,
         move |value| {
             let _ = level.emit_to(PANEL, events::RECORD_LEVEL, value);
         },
@@ -222,10 +228,10 @@ pub fn open(app: &AppHandle) {
     if phase(app) != Phase::Closed {
         return;
     }
-    let (mic, camera, speaker, mode) = {
+    let (mic, camera, speaker, mode, denoise) = {
         let state = app.state::<State>();
         let cfg = state.cfg.read().unwrap();
-        (cfg.record_mic.clone(), cfg.record_camera.clone(), cfg.record_speaker.clone(), cfg.record_mode)
+        (cfg.record_mic.clone(), cfg.record_camera.clone(), cfg.record_speaker.clone(), cfg.record_mode, cfg.record_denoise)
     };
     let inputs = audio::inputs();
     let mic = if mic.is_empty() || mic == "default" || inputs.iter().any(|d| d.id == mic) { mic } else { "default".into() };
@@ -238,9 +244,9 @@ pub fn open(app: &AppHandle) {
         }
     }
     place_panel(app, &window, SETUP);
-    swap_monitor(app, listen(app, &mic, "", false));
+    swap_monitor(app, listen(app, &mic, "", false, denoise));
     update(app, |p| {
-        p.state = PanelState { phase: Phase::Setup, mic, camera, speaker, mode, ..PanelState::default() };
+        p.state = PanelState { phase: Phase::Setup, mic, camera, speaker, mode, denoise, ..PanelState::default() };
     });
     let _ = window.show();
     let _ = window.set_focus();
@@ -275,7 +281,7 @@ pub fn cancelled(app: &AppHandle) {
         return;
     }
     let (mic, _, _) = choices(app);
-    swap_monitor(app, listen(app, &mic, "", false));
+    swap_monitor(app, listen(app, &mic, "", false, denoise(app)));
     update(app, |p| p.state.phase = Phase::Setup);
     if let Some(window) = app.get_webview_window(PANEL) {
         let _ = window.show();
@@ -340,7 +346,7 @@ pub fn paused(app: &AppHandle, paused: bool) {
 
 pub fn audio(app: &AppHandle) -> Option<audio::Capture> {
     let (mic, _, speaker) = choices(app);
-    listen(app, &mic, &speaker, true)
+    listen(app, &mic, &speaker, true, denoise(app))
 }
 
 #[tauri::command]
@@ -376,19 +382,21 @@ pub async fn record_select(
     camera: String,
     speaker: String,
     mode: RecordMode,
+    denoise: bool,
 ) -> Result<(), String> {
     if phase(&app) != Phase::Setup {
         return Err("recording already started".into());
     }
     let (old_mic, _, _) = choices(&app);
-    if old_mic != mic {
-        swap_monitor(&app, listen(&app, &mic, "", false));
+    if old_mic != mic || self::denoise(&app) != denoise {
+        swap_monitor(&app, listen(&app, &mic, "", false, denoise));
     }
     update(&app, |p| {
         p.state.mic = mic;
         p.state.camera = camera;
         p.state.speaker = speaker;
         p.state.mode = mode;
+        p.state.denoise = denoise;
     });
     Ok(())
 }
@@ -399,10 +407,14 @@ pub fn record_start(app: AppHandle) -> Result<(), String> {
         return Err("not ready".into());
     }
     let (mic, camera, speaker) = choices(&app);
-    let mode = app.state::<State>().panel.lock().unwrap().state.mode;
     let state = app.state::<State>();
+    let (mode, denoise) = {
+        let panel = state.panel.lock().unwrap();
+        (panel.state.mode, panel.state.denoise)
+    };
     {
         let mut cfg = state.cfg.write().unwrap();
+        cfg.record_denoise = denoise;
         cfg.record_mic = mic;
         cfg.record_camera = camera;
         cfg.record_speaker = speaker;

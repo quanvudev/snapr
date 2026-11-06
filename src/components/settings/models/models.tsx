@@ -2,11 +2,12 @@ import { useSettingsContext } from "@/components/settings-provider";
 import { SectionHeading } from "../section-heading";
 import { AccelerationCard } from "./acceleration-card";
 import { SettingsCard } from "../settings-card";
+import { CutoutCard } from "./cutout-card";
 import { DownloadedModels } from "./downloaded-models";
 import { ModelCard } from "./model-card";
 import { ModelUsageRow } from "./model-usage-row";
 import { paddleLabels } from "./paddle-labels";
-import { useRuntimeStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
+import { useCutoutStore, useRuntimeStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
 import { TranslateCard, useLicensePrompt } from "./translate-card";
 import { TranscriptLanguageRow } from "./transcript-language-row";
 
@@ -16,6 +17,7 @@ export function Models() {
   const whisper = useWhisperStore();
   const license = useLicensePrompt();
   const translate = useTranslateStore(license.ask);
+  const cutout = useCutoutStore();
   const whisperGpu = useWhisperGpuStore();
   const runtimes = useRuntimeStore();
   const { descs } = paddleLabels(t);
@@ -50,7 +52,9 @@ export function Models() {
       </SettingsCard>
       <SectionHeading>{t.modelsTranslation}</SectionHeading>
       <TranslateCard store={translate} asking={license.asking} onCloseLicense={license.close} />
-      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, runtimes]} />
+      <SectionHeading>{t.modelsCutout}</SectionHeading>
+      <CutoutCard store={cutout} />
+      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, cutout, runtimes]} />
     </>
   );
 }

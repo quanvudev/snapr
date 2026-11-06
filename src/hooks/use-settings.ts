@@ -6,6 +6,7 @@ import { useAcceleration } from "./use-acceleration";
 import { useHotkeyRecorder } from "./use-hotkey-recorder";
 import { usePaddle } from "./use-paddle";
 import { useUpdate } from "./use-update";
+import { useCutout } from "./use-cutout";
 import { useTranslate } from "./use-translate";
 import { useWhisper } from "./use-whisper";
 
@@ -80,6 +81,7 @@ export function useSettings() {
   const paddle = usePaddle(reloadOcr);
   const whisper = useWhisper();
   const translator = useTranslate();
+  const cutout = useCutout();
   const updater = useUpdate();
   const acceleration = useAcceleration();
 
@@ -173,6 +175,7 @@ export function useSettings() {
     paddle,
     whisper,
     translator,
+    cutout,
     updater,
     acceleration,
     textActive,

@@ -1,6 +1,6 @@
 [package]
 name = "snapr-v2"
-version = "2.1.0"
+version = "2.2.0"
 description = "Snapr: Windows tray screenshot and screen recording app"
 authors = ["Jun <vhquan9998@gmail.com>"]
 edition = "2024"
@@ -45,7 +45,8 @@ windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "W
 tiny-skia = "0.12.0"
 ab_glyph = "0.2.32"
 rqrr = "0.11.0"
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic", "ndarray", "directml", "cuda"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic", "ndarray", "directml", "cuda", "half"] }
+half = "2"
 regex = "1.13"
 tokenizers = { version = "0.23.2", default-features = false, features = ["fancy-regex"] }
 ndarray = "0.17"
@@ -57,6 +58,7 @@ minisign-verify = "0.3"
 semver = "1"
 base64 = "0.22"
 serde_json = "1"
+nnnoiseless = { version = "0.5.2", default-features = false }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
