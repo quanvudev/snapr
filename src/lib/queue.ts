@@ -1,4 +1,4 @@
-import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, SubtitleStyle, TaskSpec, Track } from "./api";
+import type { CompressHeight, CompressInfo, Quality, SubtitlePosition, SubtitleSize, SubtitleStyle, TaskSpec, Track, UpscaleScale } from "./api";
 import type { T } from "./i18n";
 
 export type Strings = (typeof T)["en"];
@@ -11,6 +11,7 @@ export const TASK_KINDS: Record<string, { label: keyof Strings }> = {
   translate: { label: "taskTranslate" },
   subtitle: { label: "taskSubtitle" },
   cutout: { label: "taskCutout" },
+  upscale: { label: "taskUpscale" },
 };
 
 const TASK_ERRORS: Record<string, keyof Strings> = {
@@ -23,6 +24,7 @@ const TASK_ERRORS: Record<string, keyof Strings> = {
   SAME_LANGUAGE: "sameLanguage",
   UNSUPPORTED_LANGUAGE: "unsupportedLanguage",
   LICENSE_REQUIRED: "licenseRequired",
+  TOO_LARGE: "tooLarge",
 };
 
 const MODEL_ERRORS = ["MODEL_MISSING", "LICENSE_REQUIRED"];
@@ -44,6 +46,10 @@ export function transcribeSpec(path: string): TaskSpec {
 
 export function cutoutSpec(path: string): TaskSpec {
   return { kind: "cutout", path };
+}
+
+export function upscaleSpec(path: string, scale: UpscaleScale): TaskSpec {
+  return { kind: "upscale", path, scale };
 }
 
 export function translateSpec(path: string, target: string | null = null): TaskSpec {

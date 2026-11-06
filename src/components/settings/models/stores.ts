@@ -4,6 +4,7 @@ import { RUNTIME_NAMES } from "./acceleration-card";
 import { PADDLE_SIZES, paddleLabels } from "./paddle-labels";
 import { CUTOUT_ID, CUTOUT_NAME } from "@/lib/cutout";
 import { HYMT_ID, HYMT_NAME } from "@/lib/hymt";
+import { UPSCALE_ID, UPSCALE_NAME } from "@/lib/upscale";
 import { mb, WHISPER_MODELS } from "./whisper-models";
 
 export const PADDLE_NAME = "PaddleOCR";
@@ -147,5 +148,23 @@ export function useCutoutStore(): ModelStore {
     download: () => cutout.download(),
     cancel: cutout.cancel,
     remove: () => cutout.remove(),
+  };
+}
+
+export function useUpscaleStore(): ModelStore {
+  const { upscale } = useSettingsContext();
+  const { status, progress, error } = upscale;
+  return {
+    name: UPSCALE_NAME,
+    options: [{ id: UPSCALE_ID, label: UPSCALE_NAME, detail: status.bytes > 0 ? mb(status.bytes) : undefined }],
+    selected: UPSCALE_ID,
+    ready: status.ready ? [UPSCALE_ID] : [],
+    bytes: { [UPSCALE_ID]: status.bytes },
+    progress: progress && { id: UPSCALE_ID, done: progress.done, total: progress.total },
+    error: error ? { id: UPSCALE_ID, message: error } : null,
+    select: () => {},
+    download: () => upscale.download(),
+    cancel: upscale.cancel,
+    remove: () => upscale.remove(),
   };
 }

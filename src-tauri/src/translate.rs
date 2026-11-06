@@ -209,7 +209,8 @@ pub fn translate_cancel(state: tauri::State<State>) {
 pub fn translate_delete(app: AppHandle, state: tauri::State<State>) -> Result<(), String> {
     let others_busy = state.download.lock().unwrap().is_some()
         || state.whisper_download.lock().unwrap().is_some()
-        || state.cutout_download.lock().unwrap().is_some();
+        || state.cutout_download.lock().unwrap().is_some()
+        || state.upscale_download.lock().unwrap().is_some();
     let download = state.translate_download.lock().unwrap();
     if download.is_some() {
         return Err("the model is downloading".into());

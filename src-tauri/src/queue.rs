@@ -7,6 +7,7 @@ use crate::library;
 use crate::subtitle::{Position, Size, Style, SubtitleTask};
 use crate::transcript::{TranscribeTask, Track};
 use crate::trim::TrimTask;
+use crate::upscale::task::UpscaleTask;
 use crate::video::CompressTask;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -408,6 +409,7 @@ pub enum TaskSpec {
     },
     Trim { path: String, start_ms: u64, end_ms: u64 },
     Cutout { path: String },
+    Upscale { path: String, scale: u32 },
 }
 
 impl TaskSpec {
@@ -424,6 +426,7 @@ impl TaskSpec {
             }
             TaskSpec::Trim { path, start_ms, end_ms } => Box::new(TrimTask::validated(app, &path, start_ms, end_ms)?),
             TaskSpec::Cutout { path } => Box::new(CutoutTask::validated(app, &path)?),
+            TaskSpec::Upscale { path, scale } => Box::new(UpscaleTask::validated(app, &path, scale)?),
         })
     }
 }

@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Captions, Clapperboard, ChevronLeft, ChevronRight, Copy, Eraser, ExternalLink, FileDown, FolderOpen, Pin, ScanText, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, Captions, Clapperboard, ChevronLeft, ChevronRight, Copy, Eraser, ExternalLink, FileDown, FolderOpen, ImageUpscale, Pin, ScanText, Scissors, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsContext } from "@/components/settings-provider";
 import type { GalleryActions, TextResult } from "@/hooks/use-gallery";
 import { api, type GalleryItem, type Track } from "@/lib/api";
 import { fileName, formatDuration, formatSize, isMp4 } from "@/lib/gallery";
+import { UPSCALE_SCALES } from "@/lib/upscale";
 import { ItemMenu } from "./item-menu";
 import { TextPane } from "./text-pane";
 import { TranscriptPane } from "./transcript-pane";
@@ -34,7 +36,7 @@ type Props = {
   onClose: () => void;
 };
 
-const IGNORED_KEY_TARGETS = 'input, textarea, [contenteditable], [role="dialog"]';
+const IGNORED_KEY_TARGETS = 'input, textarea, [contenteditable], [role="dialog"], [role="menu"], [aria-expanded="true"]';
 
 type Meta = { w: number; h: number; duration?: number };
 
@@ -123,9 +125,24 @@ export function Viewer(props: Props) {
             <Button variant="ghost" size="icon" title={`${t.pinImage} (P)`} onClick={() => actions.pin(item)}>
               <Pin />
             </Button>
-            <Button variant="ghost" size="icon" title={t.removeBackground} onClick={() => actions.removeBackground(item)}>
-              <Eraser />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon" title={t.aiTools} />}>
+                <Sparkles />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto">
+                <DropdownMenuItem onClick={() => actions.removeBackground(item)}>
+                  <Eraser />
+                  {t.removeBackground}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {UPSCALE_SCALES.map((scale) => (
+                  <DropdownMenuItem key={scale} onClick={() => actions.upscale(item, scale)}>
+                    <ImageUpscale />
+                    {t.upscale} ×{scale}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         )}
         {isMp4(item) && (

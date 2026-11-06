@@ -115,6 +115,10 @@ export type TranslateDone = { error: string | null };
 export type CutoutProgress = { done: number; total: number };
 export type CutoutStatus = { ready: boolean; bytes: number; downloading: CutoutProgress | null };
 export type CutoutDone = { error: string | null };
+export type UpscaleScale = 2 | 4;
+export type UpscaleProgress = { done: number; total: number };
+export type UpscaleStatus = { ready: boolean; bytes: number; downloading: UpscaleProgress | null };
+export type UpscaleDone = { error: string | null };
 export type Segment = { start_ms: number; end_ms: number; text: string };
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "blocked" | "downloading" | "installing" | "error";
 export type UpdateStatus = { state: UpdatePhase; version: string | null; done: number; total: number; error: string | null };
@@ -170,6 +174,7 @@ export type TaskSpec =
   | { kind: "transcribe"; path: string }
   | { kind: "translate"; path: string; target?: string | null }
   | { kind: "cutout"; path: string }
+  | { kind: "upscale"; path: string; scale: UpscaleScale }
   | { kind: "subtitle"; path: string; position: SubtitlePosition; size: SubtitleSize; style: SubtitleStyle; track: Track };
 export type SubtitleStyle = { text_color: string; background: string; opacity: number };
 
@@ -288,6 +293,12 @@ export const api = {
   cutoutDelete: () => invoke("cutout_delete"),
   onCutoutProgress: (cb: (p: CutoutProgress) => void) => listen<CutoutProgress>("cutout-progress", (e) => cb(e.payload)),
   onCutoutDone: (cb: (d: CutoutDone) => void) => listen<CutoutDone>("cutout-done", (e) => cb(e.payload)),
+  upscaleStatus: () => invoke<UpscaleStatus>("upscale_status"),
+  upscaleDownload: () => invoke("upscale_download"),
+  upscaleCancel: () => invoke("upscale_cancel"),
+  upscaleDelete: () => invoke("upscale_delete"),
+  onUpscaleProgress: (cb: (p: UpscaleProgress) => void) => listen<UpscaleProgress>("upscale-progress", (e) => cb(e.payload)),
+  onUpscaleDone: (cb: (d: UpscaleDone) => void) => listen<UpscaleDone>("upscale-done", (e) => cb(e.payload)),
   transcriptRead: (path: string, track: Track = "original") => invoke<Segment[] | null>("transcript_read", { path, track }),
   transcriptSave: (path: string, track: Track, segments: Segment[]) => invoke("transcript_save", { path, track, segments }),
   transcriptDetect: (path: string) => invoke<string | null>("transcript_detect", { path }),

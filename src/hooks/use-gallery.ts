@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { useSettingsContext } from "@/components/settings-provider";
 import { useTaskError } from "./use-task-error";
-import { api, type BulkFailure, type GalleryItem, type Recognized, type Track } from "@/lib/api";
+import { api, type BulkFailure, type GalleryItem, type Recognized, type Track, type UpscaleScale } from "@/lib/api";
 import { fileName, groupBy, isMp4, isViewable, matches, type Filter, type Period } from "@/lib/gallery";
 import {
   compressSpec,
@@ -16,6 +16,7 @@ import {
   subtitleSpec,
   transcribeSpec,
   cutoutSpec,
+  upscaleSpec,
   translateSpec,
   type CompressChoice,
   type GifRange,
@@ -293,6 +294,12 @@ export function useGallery() {
     })().catch((e) => reportTask(e));
   };
 
+  const upscaleAll = (targets: GalleryItem[], scale: UpscaleScale) => {
+    (async () => {
+      for (const item of targets) await api.queueAdd(upscaleSpec(item.path, scale)).catch((e) => reportTask(e));
+    })();
+  };
+
   const deleteSelected = () => {
     if (selectedItems.length) setPendingDelete(selectedItems);
   };
@@ -425,6 +432,8 @@ export function useGallery() {
       transcribeSelected: () => transcribeAll(videos),
       removeBackground: (item: GalleryItem) => cutoutAll([item]),
       removeBackgroundSelected: () => cutoutAll(photos),
+      upscale: (item: GalleryItem, scale: UpscaleScale) => upscaleAll([item], scale),
+      upscaleSelected: (scale: UpscaleScale) => upscaleAll(photos, scale),
       deleteSelected,
       remove: (item: GalleryItem) => setPendingDelete([item]),
     },

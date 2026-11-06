@@ -85,7 +85,7 @@ Restart snapr SHALL quit and start snapr again with the same hotkeys and setting
 - **THEN** snapr keeps running and the page says to wait for the background tasks to finish
 
 ### Requirement: Models used on the GPU
-With CUDA loaded, PaddleOCR, Whisper, HY-MT and the background removal model SHALL run on the NVIDIA card. With DirectML loaded, PaddleOCR and the background removal model SHALL run on the detected card; Whisper and HY-MT SHALL stay on the CPU, because DirectML gives wrong Whisper results. Windows OCR is not affected.
+With CUDA loaded, PaddleOCR, Whisper, HY-MT, the background removal model and the upscale model SHALL run on the NVIDIA card. With DirectML loaded, PaddleOCR, the background removal model and the upscale model SHALL run on the detected card; Whisper and HY-MT SHALL stay on the CPU, because DirectML gives wrong Whisper results. Windows OCR is not affected.
 
 #### Scenario: Recognize text with DirectML
 - **WHEN** DirectML is loaded, the OCR engine is PaddleOCR and the user captures text
@@ -106,6 +106,14 @@ With CUDA loaded, PaddleOCR, Whisper, HY-MT and the background removal model SHA
 #### Scenario: Remove background with DirectML
 - **WHEN** DirectML is loaded and the user removes the background of a photo
 - **THEN** the model runs on the detected card and the cutout matches the CPU result
+
+#### Scenario: Upscale with DirectML
+- **WHEN** DirectML is loaded and the user upscales a photo
+- **THEN** the model runs on the detected card and the result matches the CPU result
+
+#### Scenario: Card fails during an upscale
+- **WHEN** the card fails while an upscale runs
+- **THEN** the upscale runs again on the processor, finishes, and AI models shows why the card was not used
 
 ### Requirement: Whisper GPU variants
 Each Whisper model SHALL have a GPU variant: fp16 for Base and Small, q4f16 for Large v3 Turbo. With CUDA loaded or selected, the selected model's GPU variant SHALL download after its CPU files are ready. Whisper SHALL run on the card only with its GPU variant; until it is ready, transcription SHALL use the CPU files on the CPU. Downloaded models SHALL list each GPU variant with its size and Delete.

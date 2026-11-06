@@ -29,7 +29,7 @@ export function Gallery() {
   useEffect(() => {
     if (g.viewer || !selecting) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return;
+      if (event.target instanceof HTMLInputElement || (event.target as HTMLElement | null)?.closest?.('[role="menu"]')) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -218,6 +218,7 @@ export function Gallery() {
               onCompress={g.actions.compressSelected}
               onTranscribe={g.actions.transcribeSelected}
               onRemoveBackground={g.actions.removeBackgroundSelected}
+              onUpscale={g.actions.upscaleSelected}
               onCancel={g.clearSelection}
             />
           )}
