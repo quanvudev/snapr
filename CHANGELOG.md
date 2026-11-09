@@ -2,6 +2,18 @@
 
 All notable changes to Snapr. Versions follow semantic versioning.
 
+## [2.5.0] - 2026-11-10
+
+### Added
+- Live captions: choose Live captions as the mode in the recording panel (or the new Live captions item of the Action Ring), pick the spoken language and press Start. What you say into the microphone and what your computer plays (a meeting, a video) appears as text in a small floating window while it is being said, recognised entirely on your computer. Nothing is recorded or saved.
+- Live translation: pick a Translate to language in the panel and every finished sentence gets its translation underneath, using the local HY-MT1.5 model when it is downloaded. Snapr waits for the end of a sentence before translating, so a short pause in the middle never produces half a translation.
+- The captions window shows a chat: your own sentences on the right as You and the other side (system audio) on the left as Speaker, and it starts a new bubble as soon as the other person takes over. Copy all copies the whole conversation with who said what and the translations.
+- The captions window never takes focus from the app you are typing in and is hidden from screenshots, recordings and screen sharing, so only you see it.
+- Eight spoken languages: English, Vietnamese, Chinese, Japanese, Spanish, German, Arabic and Tagalog. Each uses a Moonshine Streaming model (32 to 142 MB, MIT licence), downloaded from Settings → AI models; it runs on the processor.
+
+### Changed
+- AI models cards with many choices show a dropdown instead of a row of buttons.
+
 ## [2.4.0] - 2026-11-06
 
 ### Added
