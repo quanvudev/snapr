@@ -455,7 +455,8 @@ pub fn whisper_delete(
     let translate_busy =
         state.translate_download.lock().unwrap().is_some()
         || state.cutout_download.lock().unwrap().is_some()
-        || state.upscale_download.lock().unwrap().is_some();
+        || state.upscale_download.lock().unwrap().is_some()
+        || state.captions_download.lock().unwrap().is_some();
     let download = state.whisper_download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.model == model) {
         return Err("this model is downloading".into());

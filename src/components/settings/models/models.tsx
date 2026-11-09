@@ -2,13 +2,14 @@ import { useSettingsContext } from "@/components/settings-provider";
 import { SectionHeading } from "../section-heading";
 import { AccelerationCard } from "./acceleration-card";
 import { SettingsCard } from "../settings-card";
+import { CaptionsCard } from "./captions-card";
 import { CutoutCard } from "./cutout-card";
 import { UpscaleCard } from "./upscale-card";
 import { DownloadedModels } from "./downloaded-models";
 import { ModelCard } from "./model-card";
 import { ModelUsageRow } from "./model-usage-row";
 import { paddleLabels } from "./paddle-labels";
-import { useCutoutStore, useRuntimeStore, useUpscaleStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
+import { useCaptionsStore, useCutoutStore, useRuntimeStore, useUpscaleStore, usePaddleStore, useTranslateStore, useWhisperGpuStore, useWhisperStore } from "./stores";
 import { TranslateCard, useLicensePrompt } from "./translate-card";
 import { TranscriptLanguageRow } from "./transcript-language-row";
 
@@ -20,6 +21,7 @@ export function Models() {
   const translate = useTranslateStore(license.ask);
   const cutout = useCutoutStore();
   const upscale = useUpscaleStore();
+  const captions = useCaptionsStore();
   const whisperGpu = useWhisperGpuStore();
   const runtimes = useRuntimeStore();
   const { descs } = paddleLabels(t);
@@ -52,13 +54,15 @@ export function Models() {
           label={`${t.recording} →`}
         />
       </SettingsCard>
+      <SectionHeading>{t.modelsCaptions}</SectionHeading>
+      <CaptionsCard store={captions} />
       <SectionHeading>{t.modelsTranslation}</SectionHeading>
       <TranslateCard store={translate} asking={license.asking} onCloseLicense={license.close} />
       <SectionHeading>{t.modelsCutout}</SectionHeading>
       <CutoutCard store={cutout} />
       <SectionHeading>{t.modelsUpscale}</SectionHeading>
       <UpscaleCard store={upscale} />
-      <DownloadedModels stores={[paddle, whisper, whisperGpu, translate, cutout, upscale, runtimes]} />
+      <DownloadedModels stores={[paddle, whisper, whisperGpu, captions, translate, cutout, upscale, runtimes]} />
     </>
   );
 }

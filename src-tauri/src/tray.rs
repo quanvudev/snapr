@@ -56,6 +56,7 @@ pub(crate) fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         "update" => update::from_tray(app),
         "quit" => {
             stop_recording(app);
+            crate::captions::session::stop_session(app);
             queue::shutdown(app);
             app.exit(0);
         }

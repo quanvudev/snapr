@@ -1,6 +1,7 @@
 mod audio;
 mod panel;
 mod capture;
+mod captions;
 mod config;
 mod cutout;
 mod draw;
@@ -65,6 +66,7 @@ enum Action {
     RecordFailed(String),
     CancelCountdown,
     RecordPick(config::RecordMode),
+    Captions,
     Redactions { token: u64, rects: Vec<ocr::Bounds> },
 }
 
@@ -92,6 +94,8 @@ pub struct State {
     panel: Mutex<panel::Panel>,
     capture: Mutex<Option<audio::Capture>>,
     queue: queue::Queue,
+    captions: Mutex<Option<captions::session::Session>>,
+    captions_download: Mutex<Option<captions::Download>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -142,6 +146,8 @@ pub fn run() {
                 panel: Mutex::new(panel::Panel::default()),
                 capture: Mutex::new(None),
                 queue: queue::Queue::default(),
+                captions: Mutex::new(None),
+                captions_download: Mutex::new(None),
             });
             library::migrate(&handle);
             queue::spawn(handle.clone());
@@ -182,6 +188,12 @@ pub fn run() {
             panel::record_discard,
             panel::record_camera_toggle,
             panel::open_camera_settings,
+            panel::open_models,
+            captions::captions_status,
+            captions::captions_download,
+            captions::captions_cancel,
+            captions::captions_delete,
+            captions::captions_copy,
             settings::load,
             settings::defaults,
             settings::resolve_dir,

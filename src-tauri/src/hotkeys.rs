@@ -7,6 +7,19 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 pub(crate) fn trigger(app: &AppHandle, action: &Action) {
+    if matches!(action, Action::Captions) {
+        let state = app.state::<State>();
+        let busy = state.recording.lock().unwrap().is_some() || state.counting.load(Ordering::Relaxed);
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if crate::captions::session::running(&handle) {
+                crate::captions::session::stop_session(&handle);
+            } else if !busy {
+                panel::open_with(&handle, Some(crate::config::RecordMode::Captions));
+            }
+        });
+        return;
+    }
     if matches!(action, Action::Record) {
         if stop_recording(app) {
             return;

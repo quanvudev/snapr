@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { APP_INFO } from "@/lib/app-info";
 import icon from "../../../../src-tauri/icons/128x128.png";
 import { SettingsCard } from "../settings-card";
+import { CaptionsNotice } from "./captions-notice";
 import { CutoutNotice } from "./cutout-notice";
 import { UpscaleNotice } from "./upscale-notice";
 import { HymtNotice } from "./hymt-notice";
@@ -52,6 +53,7 @@ export function About() {
           </ItemActions>
         </Item>
         <HymtNotice />
+        <CaptionsNotice />
         <CutoutNotice />
         <UpscaleNotice />
       </SettingsCard>

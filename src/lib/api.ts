@@ -4,7 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-export type RecordMode = "fullscreen" | "window" | "area";
+export type RecordMode = "fullscreen" | "window" | "area" | "captions";
+export type CaptionLanguage = "en" | "vi" | "zh" | "ja" | "es" | "de" | "ar" | "tl";
 export type CameraEffect = "none" | "blur" | "image";
 export type CameraLook = {
   strength: number;
@@ -18,7 +19,7 @@ export type CameraLook = {
 export type HotkeyMode = "fixed" | "manual";
 export type Hotkeys = { mode: HotkeyMode; modifiers: string; fullscreen: string; window: string; area: string; text: string; record: string; draw: string; ring: string; manual: string[] };
 export type Theme = "system" | "light" | "dark";
-export type BuiltinId = "fullscreen" | "window" | "area" | "text" | "record" | "draw" | "gallery" | "settings";
+export type BuiltinId = "fullscreen" | "window" | "area" | "text" | "record" | "draw" | "gallery" | "settings" | "captions";
 export type RingItem =
   | { kind: "builtin"; id: BuiltinId; key?: string | null }
   | { kind: "app"; label: string; path: string; args: string; admin: boolean; key?: string | null };
@@ -68,6 +69,8 @@ export type Config = {
   record_bg_wrap: number;
   record_bg_wrap_radius: number;
   record_mode: RecordMode;
+  captions_language: string;
+  captions_target: string;
   text_capture: boolean;
   ocr_engine: OcrEngine;
   paddle_model: PaddleSize;
@@ -135,7 +138,7 @@ export type GalleryItem = {
 export type BulkFailure = { path: string; error: string };
 
 export type InputDevice = { id: string; name: string; default: boolean };
-export type PanelPhase = "closed" | "setup" | "picking" | "countdown" | "recording";
+export type PanelPhase = "closed" | "setup" | "picking" | "countdown" | "recording" | "captions";
 export type PanelState = {
   phase: PanelPhase;
   mic: string;
@@ -151,7 +154,20 @@ export type PanelState = {
   paused_at_ms: number | null;
   camera_hidden: boolean;
   warning: "mic_lost" | null;
+  captions_language: CaptionLanguage | null;
+  captions_target: string;
+  captions_ready: boolean;
+  translate_ready: boolean;
 };
+
+export type CaptionsProgress = { language: CaptionLanguage; done: number; total: number };
+export type CaptionsStatus = {
+  models: { language: CaptionLanguage; ready: boolean; bytes: number }[];
+  downloading: CaptionsProgress | null;
+};
+export type CaptionsDone = { language: CaptionLanguage; error: string | null };
+export type CaptionSource = "mic" | "system";
+export type LiveCaption = { id: number; text: string; final: boolean; source: CaptionSource } | { id: number; translation: string };
 
 export type Recognized = { qr: string[]; text: string };
 
@@ -293,6 +309,16 @@ export const api = {
   cutoutDelete: () => invoke("cutout_delete"),
   onCutoutProgress: (cb: (p: CutoutProgress) => void) => listen<CutoutProgress>("cutout-progress", (e) => cb(e.payload)),
   onCutoutDone: (cb: (d: CutoutDone) => void) => listen<CutoutDone>("cutout-done", (e) => cb(e.payload)),
+  captionsStatus: () => invoke<CaptionsStatus>("captions_status"),
+  captionsDownload: (language: CaptionLanguage) => invoke("captions_download", { language }),
+  captionsCancel: () => invoke("captions_cancel"),
+  captionsDelete: (language: CaptionLanguage) => invoke("captions_delete", { language }),
+  onCaptionsProgress: (cb: (p: CaptionsProgress) => void) =>
+    listen<CaptionsProgress>("captions-progress", (e) => cb(e.payload)),
+  onCaptionsDone: (cb: (d: CaptionsDone) => void) => listen<CaptionsDone>("captions-done", (e) => cb(e.payload)),
+  onLiveCaption: (cb: (c: LiveCaption) => void) => listen<LiveCaption>("live-caption", (e) => cb(e.payload)),
+  openModels: () => invoke("open_models"),
+  captionsCopy: (text: string) => invoke("captions_copy", { text }),
   upscaleStatus: () => invoke<UpscaleStatus>("upscale_status"),
   upscaleDownload: () => invoke("upscale_download"),
   upscaleCancel: () => invoke("upscale_cancel"),
@@ -322,7 +348,10 @@ export const api = {
     mode: RecordMode,
     denoise: boolean,
     effect: CameraEffect,
-  ) => invoke("record_select", { mic, camera, speaker, mode, denoise, effect }),
+    captionsLanguage: CaptionLanguage,
+    captionsTarget: string,
+  ) =>
+    invoke("record_select", { mic, camera, speaker, mode, denoise, effect, captionsLanguage, captionsTarget }),
   cameraBackground: (path: string) => invoke<ArrayBuffer>("camera_background", { path }),
   recordPanelFit: (width: number, height: number) => invoke("record_panel_fit", { width, height }),
   recordStart: () => invoke("record_start"),

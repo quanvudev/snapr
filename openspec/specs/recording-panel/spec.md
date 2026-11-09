@@ -18,11 +18,13 @@ When no recording or countdown is running, the record hotkey and the ring Record
 
 ### Requirement: Device selection before recording
 Before a recording, the panel SHALL show a round webcam preview of about 200 logical pixels above a pill-shaped bar. The bar SHALL hold, as icons only with a tooltip each:
-- the recording mode: full screen, window or area;
+- the recording mode: full screen, window, area or live captions;
 - a microphone picker (input devices, default, none) with the live input level, and a Noise suppression on / off choice that is unavailable while no microphone is selected;
 - a camera picker (video devices, off) with a Background choice (none, blur or image) that is unavailable while the camera is off;
 - a speaker picker for system audio (output devices, default, none);
 - Start and Close.
+
+In the live captions mode the camera picker SHALL be unavailable, the camera SHALL be released, the round preview SHALL show the spoken and target languages instead of the camera image, and the bar SHALL also hold a Spoken language picker and a Translate to picker.
 
 The live input level SHALL reflect the microphone after noise suppression while it is on, and SHALL follow a change of the choice within about half a second.
 
@@ -54,6 +56,10 @@ The live input level SHALL reflect the microphone after noise suppression while 
 - **WHEN** the user turns the camera off
 - **THEN** the Background choice is shown disabled
 
+#### Scenario: Live captions mode
+- **WHEN** the user selects the live captions mode
+- **THEN** the camera light turns off, the camera picker is shown disabled, the preview shows the caption languages and the language pickers appear
+
 ### Requirement: Preview placeholder and device lists
 The device pickers SHALL open their lists inside the panel, wide enough to read the device names. When the camera is off, no camera is found or the camera cannot be opened, the round preview SHALL show a placeholder saying so.
 
@@ -66,7 +72,7 @@ The device pickers SHALL open their lists inside the panel, wide enough to read 
 - **THEN** the list stays inside the panel and the name is shortened with an ellipsis
 
 ### Requirement: Start opens the picker
-Start (the panel button or Enter) SHALL hide the panel, release the preview camera and open the record picker. A pick SHALL show the panel as the compact recording bar and start the recording, after the countdown when it is on. Cancelling the picker SHALL return to the panel with the same choices.
+Start (the panel button or Enter) SHALL hide the panel, release the preview camera and open the record picker. A pick SHALL show the panel as the compact recording bar and start the recording, after the countdown when it is on. Cancelling the picker SHALL return to the panel with the same choices. In the live captions mode Start SHALL instead start a captions session without a picker or a countdown.
 
 #### Scenario: Start and pick
 - **WHEN** the user clicks Start and then picks an area
@@ -75,6 +81,10 @@ Start (the panel button or Enter) SHALL hide the panel, release the preview came
 #### Scenario: Cancel the picker
 - **WHEN** the user clicks Start and then presses Esc in the picker
 - **THEN** the panel is shown again with the same microphone, camera and speaker choices
+
+#### Scenario: Start live captions
+- **WHEN** the mode is live captions and the user clicks Start
+- **THEN** no picker opens and the captions session starts
 
 ### Requirement: Devices are locked while recording
 Once recording starts, the panel SHALL switch to a compact pill bar with only a Stop button, the elapsed time, Pause / Resume and Delete, without text labels other than the time. A lost-microphone warning icon SHALL appear only when the microphone was lost. The microphone, the noise suppression choice, the camera device, the background choice and the system audio choice SHALL NOT be changeable until the recording ends.
@@ -143,7 +153,7 @@ The recording bar SHALL stay above the webcam window so it can always be clicked
 - **THEN** the bar overlaps the webcam and its buttons can still be clicked
 
 ### Requirement: Choices are remembered
-The chosen mode, microphone, noise suppression choice, camera, background choice and speaker SHALL be saved when a recording starts and preselected when the panel opens; a missing camera SHALL fall back to the first camera found and a missing microphone or speaker to the default one. A config without them SHALL load with full screen, the default microphone, noise suppression on, no background effect and no speaker.
+The chosen mode, microphone, noise suppression choice, camera, background choice and speaker SHALL be saved when a recording or a captions session starts and preselected when the panel opens; a missing camera SHALL fall back to the first camera found and a missing microphone or speaker to the default one. A config without them SHALL load with full screen, the default microphone, noise suppression on, no background effect and no speaker.
 
 #### Scenario: Next recording
 - **WHEN** the user records with a USB microphone and a camera, then opens the panel again
@@ -164,6 +174,10 @@ The chosen mode, microphone, noise suppression choice, camera, background choice
 #### Scenario: Older config
 - **WHEN** snapr starts with a config written before noise suppression or background effects existed
 - **THEN** the panel opens with noise suppression on and no background effect
+
+#### Scenario: Live captions mode is remembered
+- **WHEN** the user runs a captions session and opens the panel again
+- **THEN** the live captions mode is selected
 
 ### Requirement: Panel closes when the recording ends
 When a recording ends (stopped, discarded, failed, window closed or Quit), the panel and the webcam window SHALL close and the camera SHALL be released.

@@ -34,6 +34,10 @@
 - Microphone and system audio, with noise suppression that removes fan hum and keyboard noise from the microphone, an optional round webcam overlay, a 3-second countdown, pause and resume.
 - Optional automatic compression to 1080p or 720p after recording.
 
+**Live captions**
+- See what is being said, by you on the microphone and by others through your speakers, as text in a floating window while it is said, recognised locally in English, Vietnamese, Chinese, Japanese, Spanish, German, Arabic or Tagalog.
+- Optional live translation of every finished sentence, shown as a chat with your side and the other side apart. The window is hidden from screenshots, recordings and screen sharing.
+
 **Text and QR codes**
 - Select an area to copy its text, or the content of any QR code in it, to the clipboard.
 - Uses Windows OCR, or an optional local PaddleOCR model.
@@ -131,6 +135,13 @@ Settings → Capture → Redaction turns on **automatic redaction of full-screen
 
 Settings → Recording sets the frame rate, quality and countdown, and what happens after recording: compress to 1080p / 720p, transcribe the speech, and translate the subtitles.
 
+### Live captions
+
+1. Open the recording panel (or pick Live captions in the Action Ring) and choose **Live captions** as the mode.
+2. In the languages menu pick the **spoken language** and, if you want, a **Translate to** language. The audio menu decides what is captioned: the microphone, system audio (a meeting, a video) or both. The first time, download the language's model from Settings → AI models (the panel links to it).
+3. Click **Start**. A small window appears above the bar: your sentences show on the right as You and the other side on the left as Speaker, with each translation under its sentence once the sentence is finished. It never takes focus and is hidden from screenshots, recordings and screen sharing.
+4. **Copy all** copies the conversation. Stop from the bar, the recording hotkey or the ring. Nothing is saved.
+
 ### Text and QR codes
 
 Press the text hotkey and drag over any text. If the area contains a QR code its content is copied, otherwise the recognised text is; a notification confirms it. Windows OCR uses the languages installed in Windows (Settings → Text links to the language settings); switch to PaddleOCR there for better accuracy on screenshots.
@@ -151,11 +162,11 @@ Open it from the tray. Captures are grouped by day, month or year and filtered b
   <img src="docs/screenshots/ring.png" width="720" alt="Action Ring settings">
 </p>
 
-Turn it on in Settings → Action Ring and give it a hotkey or a mouse button. It opens around the cursor with every action one click away: captures, recording, Gallery and Settings. Choose which items it shows and how long it waits before closing.
+Turn it on in Settings → Action Ring and give it a hotkey or a mouse button. It opens around the cursor with every action one click away: captures, recording, live captions, Gallery and Settings. Choose which items it shows and how long it waits before closing.
 
 ## AI models
 
-Text capture works out of the box with Windows OCR. PaddleOCR, Whisper, HY-MT1.5 and BEN2 are optional: Snapr downloads a model only when you turn on the feature that needs it or click Download, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
+Text capture works out of the box with Windows OCR. PaddleOCR, Whisper, Moonshine, HY-MT1.5 and BEN2 are optional: Snapr downloads a model only when you turn on the feature that needs it or click Download, verifies each file against a pinned SHA-256 and runs it on your machine through ONNX Runtime. Manage and delete them in Settings → AI models.
 
 **Hardware acceleration.** Settings → AI models detects your graphics card and can run the models on it instead of the processor. Auto (the default) uses the fastest runtime you have already downloaded and never downloads anything itself; CPU, DirectML and CUDA pick one explicitly. A new choice applies after Restart snapr, and if the card fails a task runs again on the processor.
 
@@ -166,6 +177,8 @@ Text capture works out of the box with Windows OCR. PaddleOCR, Whisper, HY-MT1.5
 | CUDA (NVIDIA only) | about 1 GB | PaddleOCR, Whisper, HY-MT1.5 and BEN2 | same video: 16 s; 100 subtitle lines translated in 6.5 s instead of 45 s |
 
 With CUDA, Snapr also downloads a GPU version of the selected Whisper model (fp16, or q4f16 for Turbo). Translation now works on several subtitle lines at a time on every computer, which made it about a third faster on the processor too.
+
+Moonshine Streaming (32 to 142 MB per spoken language, MIT licence, by Moonshine AI) powers live captions. It runs on the processor: English Small needs about 120 ms for each 160 ms of speech on a recent CPU, the Tiny models about 25 ms.
 
 BEN2 Base (about 223 MB, MIT licence, by Prama) removes photo backgrounds. It works best on people, pets and objects, not on screenshots of apps.
 

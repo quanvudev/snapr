@@ -23,7 +23,15 @@ pub struct Device {
     pub default: bool,
 }
 
-pub type Chunk = Vec<i16>;
+pub struct Chunk {
+    pub pcm: Vec<i16>,
+    pub mic: f32,
+    pub system: f32,
+}
+
+fn energy(buffer: &[f32]) -> f32 {
+    buffer.iter().map(|s| s * s).sum::<f32>() / buffer.len().max(1) as f32
+}
 
 fn name(device: &cpal::Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_string())
@@ -239,12 +247,8 @@ impl Mixer {
             sum += mic.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>();
             count += mic.len();
             if let Some(tx) = &self.chunks {
-                let chunk = mic
-                    .iter()
-                    .zip(&system)
-                    .map(|(a, b)| ((a + b).clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                    .collect();
-                let _ = tx.send(chunk);
+                let pcm = mic.iter().zip(&system).map(|(a, b)| ((a + b).clamp(-1.0, 1.0) * i16::MAX as f32) as i16).collect();
+                let _ = tx.send(Chunk { pcm, mic: energy(&mic), system: energy(&system) });
             }
             ticks += 1;
             if ticks.is_multiple_of(LEVEL_TICKS) {

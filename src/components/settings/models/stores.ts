@@ -1,5 +1,7 @@
 import { useSettingsContext } from "@/components/settings-provider";
-import type { GpuRuntime, PaddleSize, WhisperModel } from "@/lib/api";
+import type { CaptionLanguage, GpuRuntime, PaddleSize, WhisperModel } from "@/lib/api";
+import { CAPTION_LANGUAGES, CAPTIONS_NAME } from "@/lib/captions";
+import { languageName } from "@/lib/languages";
 import { RUNTIME_NAMES } from "./acceleration-card";
 import { PADDLE_SIZES, paddleLabels } from "./paddle-labels";
 import { CUTOUT_ID, CUTOUT_NAME } from "@/lib/cutout";
@@ -148,6 +150,29 @@ export function useCutoutStore(): ModelStore {
     download: () => cutout.download(),
     cancel: cutout.cancel,
     remove: () => cutout.remove(),
+  };
+}
+
+export function useCaptionsStore(): ModelStore {
+  const { cfg, captions, update } = useSettingsContext();
+  const { status, progress, error } = captions;
+  const bytes = Object.fromEntries(status.models.map((m) => [m.language, m.bytes]));
+  return {
+    name: CAPTIONS_NAME,
+    options: CAPTION_LANGUAGES.map((id) => ({
+      id,
+      label: languageName(id, cfg.language),
+      detail: bytes[id] > 0 ? mb(bytes[id]) : undefined,
+    })),
+    selected: CAPTION_LANGUAGES.includes(cfg.captions_language as CaptionLanguage) ? cfg.captions_language : "en",
+    ready: status.models.filter((m) => m.ready).map((m) => m.language),
+    bytes,
+    progress: progress && { id: progress.language, done: progress.done, total: progress.total },
+    error: error && { id: error.language, message: error.message },
+    select: (id) => update({ ...cfg, captions_language: id }),
+    download: (id) => captions.download(id as CaptionLanguage),
+    cancel: captions.cancel,
+    remove: (id) => captions.remove(id as CaptionLanguage),
   };
 }
 

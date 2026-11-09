@@ -37,6 +37,7 @@ export function RecordingPanel({ state, t }: { state: PanelState; t: Strings }) 
   const [confirm, setConfirm] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   const paused = state.paused_at_ms != null;
+  const captions = state.phase === "captions";
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
@@ -79,6 +80,8 @@ export function RecordingPanel({ state, t }: { state: PanelState; t: Strings }) 
             <TooltipContent side="bottom">{t.recMicLost}</TooltipContent>
           </Tooltip>
         ) : null}
+        {captions ? null : (
+          <>
         <Separator orientation="vertical" className="mx-1 h-7 data-vertical:self-center" />
         <Action label={paused ? t.recResume : t.recPause} onClick={() => (paused ? api.recordResume() : api.recordPause())}>
           {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
@@ -90,6 +93,8 @@ export function RecordingPanel({ state, t }: { state: PanelState; t: Strings }) 
         >
           <Trash2 className="size-5" />
         </Action>
+          </>
+        )}
       </div>
     </div>
   );

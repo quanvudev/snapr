@@ -13,6 +13,7 @@ export const BUILTINS: Record<BuiltinId, { glyph: string; name: keyof Strings }>
   draw: { glyph: "", name: "ringDraw" },
   gallery: { glyph: "", name: "ringGallery" },
   settings: { glyph: "", name: "ringSettings" },
+  captions: { glyph: "", name: "ringCaptions" },
 };
 
 const POSITION_KEY_COUNT = 9;

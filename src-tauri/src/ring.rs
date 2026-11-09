@@ -78,6 +78,7 @@ const OPEN_START_SCALE: f32 = 0.5;
 const CARD_SLIDE: f32 = 6.0;
 const BITS_PER_PIXEL: u16 = 32;
 const STOP_RECORDING: (&str, &str, char) = ("Stop recording", "Dừng quay", '\u{E71A}');
+const STOP_CAPTIONS: (&str, &str, char) = ("Stop live captions", "Dừng phụ đề trực tiếp", '\u{E71A}');
 const RING_HIDE_DELAY: Duration = Duration::from_millis(150);
 const SHELL_EXECUTE_MAX_ERROR: usize = 32;
 const SHELL_ACCESS_DENIED: usize = 5;
@@ -146,6 +147,13 @@ pub enum Wedge {
     Draw,
     Gallery,
     Settings,
+    Captions,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Busy {
+    pub recording: bool,
+    pub captioning: bool,
 }
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
@@ -204,7 +212,7 @@ enum Icon {
     Bitmap(Pixmap),
 }
 
-const WEDGES: [(Wedge, &str, &str, char); 8] = [
+const WEDGES: [(Wedge, &str, &str, char); 9] = [
     (Wedge::Fullscreen, "Fullscreen", "Toàn màn hình", '\u{E740}'),
     (Wedge::Window, "Window", "Cửa sổ", '\u{E737}'),
     (Wedge::Area, "Area", "Vùng chọn", '\u{EF20}'),
@@ -213,10 +221,11 @@ const WEDGES: [(Wedge, &str, &str, char); 8] = [
     (Wedge::Draw, "Draw", "Vẽ", '\u{E70F}'),
     (Wedge::Gallery, "Gallery", "Thư viện", '\u{E8B9}'),
     (Wedge::Settings, "Settings", "Cài đặt", '\u{E713}'),
+    (Wedge::Captions, "Live captions", "Phụ đề trực tiếp", '\u{E7F0}'),
 ];
 
 impl Wedge {
-    pub const ALL: [Wedge; 8] = [
+    pub const ALL: [Wedge; 9] = [
         Wedge::Fullscreen,
         Wedge::Window,
         Wedge::Area,
@@ -225,11 +234,16 @@ impl Wedge {
         Wedge::Draw,
         Wedge::Gallery,
         Wedge::Settings,
+        Wedge::Captions,
     ];
 
-    fn face(self, recording: bool) -> (&'static str, &'static str, char) {
+    fn face(self, busy: Busy) -> (&'static str, &'static str, char) {
         let (_, en, vn, glyph) = WEDGES.iter().find(|(w, ..)| *w == self).copied().unwrap_or(WEDGES[0]);
-        if recording && self == Wedge::Record { (STOP_RECORDING.0, STOP_RECORDING.1, STOP_RECORDING.2) } else { (en, vn, glyph) }
+        match self {
+            Wedge::Record if busy.recording => STOP_RECORDING,
+            Wedge::Captions if busy.captioning => STOP_CAPTIONS,
+            _ => (en, vn, glyph),
+        }
     }
 
     fn action(self) -> Result<Action, &'static str> {
@@ -240,6 +254,7 @@ impl Wedge {
             Wedge::Text => Ok(Action::Text),
             Wedge::Record => Ok(Action::Record),
             Wedge::Draw => Ok(Action::Draw),
+            Wedge::Captions => Ok(Action::Captions),
             Wedge::Gallery => Err("gallery"),
             Wedge::Settings => Err("settings"),
         }
@@ -287,8 +302,13 @@ impl AppEntry {
 }
 
 impl Entry {
-    pub fn available(&self, text: bool) -> bool {
-        text || !matches!(self, Entry::Builtin(Wedge::Text, _))
+    pub fn available(&self, text: bool, busy: Busy, counting: bool) -> bool {
+        match self {
+            Entry::Builtin(Wedge::Text, _) => text,
+            Entry::Builtin(Wedge::Captions, _) => !busy.recording && !counting,
+            Entry::Builtin(Wedge::Record, _) => !busy.captioning,
+            _ => true,
+        }
     }
 
     fn key(&self) -> Option<char> {
@@ -305,19 +325,19 @@ impl Entry {
         }
     }
 
-    fn label(&self, recording: bool, vi: bool) -> String {
+    fn label(&self, busy: Busy, vi: bool) -> String {
         match self {
             Entry::Builtin(wedge, _) => {
-                let (en, vn, _) = wedge.face(recording);
+                let (en, vn, _) = wedge.face(busy);
                 (if vi { vn } else { en }).to_string()
             }
             Entry::App(app) => app.label.clone(),
         }
     }
 
-    fn icon(&self, recording: bool, pixels: i32) -> Icon {
+    fn icon(&self, busy: Busy, pixels: i32) -> Icon {
         match self {
-            Entry::Builtin(wedge, _) => Icon::Glyph(wedge.face(recording).2),
+            Entry::Builtin(wedge, _) => Icon::Glyph(wedge.face(busy).2),
             Entry::App(app) => app.icon(pixels),
         }
     }
@@ -402,7 +422,7 @@ fn pressed() -> bool {
 }
 
 impl Ring {
-    pub fn open(event_loop: &ActiveEventLoop, entries: Vec<Entry>, recording: bool, vi: bool, keys_on: bool, idle: Option<Duration>) -> Option<Self> {
+    pub fn open(event_loop: &ActiveEventLoop, entries: Vec<Entry>, busy: Busy, vi: bool, keys_on: bool, idle: Option<Duration>) -> Option<Self> {
         if entries.is_empty() {
             return None;
         }
@@ -418,7 +438,7 @@ impl Ring {
             .with_skip_taskbar(true);
         let window = Rc::new(event_loop.create_window(attrs).ok()?);
         let scale = window.scale_factor() as f32;
-        let items = layout(&entries, recording, vi, scale);
+        let items = layout(&entries, busy, vi, scale);
         let reach = items.iter().map(|item| item.reach(scale)).fold(0.0, f32::max);
         let side = (2.0 * (reach + WINDOW_MARGIN * scale)).ceil() as i32;
         let (x, y) = (place(cursor.0, side, monitor.0, monitor.2), place(cursor.1, side, monitor.1, monitor.3));
@@ -658,7 +678,7 @@ fn orbit(count: usize) -> f32 {
     ORBIT.max((2.0 * BUTTON_RADIUS + BUTTON_GAP) / spacing)
 }
 
-fn layout(entries: &[Entry], recording: bool, vi: bool, scale: f32) -> Vec<Item> {
+fn layout(entries: &[Entry], busy: Busy, vi: bool, scale: f32) -> Vec<Item> {
     let face = draw::font();
     let step = TAU / entries.len() as f32;
     let orbit = orbit(entries.len());
@@ -667,7 +687,7 @@ fn layout(entries: &[Entry], recording: bool, vi: bool, scale: f32) -> Vec<Item>
         .iter()
         .enumerate()
         .map(|(i, entry)| {
-            let label = entry.label(recording, vi);
+            let label = entry.label(busy, vi);
             let angle = i as f32 * step;
             let (dx, dy) = (angle.sin(), -angle.cos());
             let button = Point::from_xy(dx * orbit * scale, dy * orbit * scale);
@@ -677,7 +697,7 @@ fn layout(entries: &[Entry], recording: bool, vi: bool, scale: f32) -> Vec<Item>
             let (px, py) = (button.x + dx * anchor, button.y + dy * anchor);
             let side = (dx / CARD_SIDE_FRACTION).clamp(-1.0, 1.0);
             let card = (px + side * w / 2.0 - w / 2.0, py + dy * h / 2.0 - h / 2.0, w, h);
-            Item { label, icon: entry.icon(recording, icon_pixels), button, card, dir: Point::from_xy(dx, dy) }
+            Item { label, icon: entry.icon(busy, icon_pixels), button, card, dir: Point::from_xy(dx, dy) }
         })
         .collect()
 }

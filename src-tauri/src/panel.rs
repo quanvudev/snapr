@@ -1,6 +1,7 @@
 use crate::events;
 use crate::config::{CameraEffect, CameraLook, RecordMode};
 use crate::overlay::Rect;
+use crate::captions::{self, Language};
 use crate::{audio, Action, State};
 use serde::Serialize;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,11 +11,15 @@ use tauri::{
     WindowEvent,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowDisplayAffinity, SetWindowPos, WDA_EXCLUDEFROMCAPTURE,
+    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowDisplayAffinity, SetWindowLongPtrW,
+    SetWindowPos, WDA_EXCLUDEFROMCAPTURE, WS_EX_NOACTIVATE,
 };
 
 pub const PANEL: &str = "panel";
 pub const CAMERA: &str = "camera";
+pub const CAPTIONS: &str = "captions";
+const CAPTIONS_SIZE: (f64, f64) = (640.0, 200.0);
+const CAPTIONS_GAP: f64 = 12.0;
 const SETUP: (f64, f64) = (360.0, 300.0);
 const CAMERA_SIZE: f64 = 236.0;
 const MARGIN: f64 = 24.0;
@@ -33,6 +38,7 @@ pub enum Phase {
     Picking,
     Countdown,
     Recording,
+    Captions,
 }
 
 #[derive(Clone, Default, Serialize)]
@@ -51,6 +57,10 @@ pub struct PanelState {
     pub paused_at_ms: Option<u64>,
     pub camera_hidden: bool,
     pub warning: Option<&'static str>,
+    pub captions_language: Option<Language>,
+    pub captions_target: String,
+    pub captions_ready: bool,
+    pub translate_ready: bool,
 }
 
 #[derive(Default)]
@@ -249,10 +259,49 @@ fn close_camera(app: &AppHandle) {
     }
 }
 
-pub fn open(app: &AppHandle) {
-    if phase(app) != Phase::Closed {
+fn exclude_from_capture(window: &WebviewWindow) {
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE);
+        }
+    }
+}
+
+fn model_flags(app: &AppHandle, language: Language) -> (bool, bool) {
+    (captions::ready(app, language), crate::translate::ready(app))
+}
+
+pub fn refresh_models(app: &AppHandle) {
+    if phase(app) == Phase::Closed {
         return;
     }
+    let language = app.state::<State>().panel.lock().unwrap().state.captions_language.unwrap_or(Language::En);
+    let (captions_ready, translate_ready) = model_flags(app, language);
+    update(app, |p| {
+        p.state.captions_ready = captions_ready;
+        p.state.translate_ready = translate_ready;
+    });
+}
+
+pub fn open(app: &AppHandle) {
+    open_with(app, None);
+}
+
+pub fn open_with(app: &AppHandle, mode_override: Option<RecordMode>) {
+    if phase(app) != Phase::Closed {
+        if phase(app) == Phase::Setup
+            && let Some(mode) = mode_override
+        {
+            update(app, |p| p.state.mode = mode);
+        }
+        return;
+    }
+    let state = app.state::<State>();
+    let (captions_language, captions_target) = {
+        let cfg = state.cfg.read().unwrap();
+        (cfg.captions_language(), cfg.captions_target().unwrap_or(crate::config::CAPTIONS_OFF).to_string())
+    };
+    let (captions_ready, translate_ready) = model_flags(app, captions_language);
     let (mic, camera, speaker, mode, denoise, effect, camera_image, look) = {
         let state = app.state::<State>();
         let cfg = state.cfg.read().unwrap();
@@ -271,12 +320,9 @@ pub fn open(app: &AppHandle) {
     let mic = if mic.is_empty() || mic == "default" || inputs.iter().any(|d| d.id == mic) { mic } else { "default".into() };
     let speaker =
         if speaker.is_empty() || speaker == "default" || audio::outputs().iter().any(|d| d.id == speaker) { speaker } else { "default".into() };
+    let mode = mode_override.unwrap_or(mode);
     let Some(window) = build(app, PANEL, "view=panel", SETUP, true) else { return };
-    if let Ok(hwnd) = window.hwnd() {
-        unsafe {
-            SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE);
-        }
-    }
+    exclude_from_capture(&window);
     place_panel(app, &window, SETUP);
     swap_monitor(app, listen(app, &mic, "", false, denoise));
     update(app, |p| {
@@ -290,6 +336,10 @@ pub fn open(app: &AppHandle) {
             effect,
             camera_image,
             look,
+            captions_language: Some(captions_language),
+            captions_target,
+            captions_ready,
+            translate_ready,
             ..PanelState::default()
         };
     });
@@ -298,8 +348,10 @@ pub fn open(app: &AppHandle) {
 }
 
 pub fn close(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(PANEL) {
-        let _ = window.destroy();
+    for label in [PANEL, CAPTIONS] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.destroy();
+        }
     }
     close_camera(app);
     swap_monitor(app, None);
@@ -317,8 +369,49 @@ pub fn toggle(app: &AppHandle) -> bool {
             true
         }
         Phase::Picking => true,
+        Phase::Captions => {
+            captions::session::stop_session(app);
+            true
+        }
         Phase::Countdown | Phase::Recording => false,
     }
+}
+
+fn open_captions_window(app: &AppHandle) {
+    let Some(window) = build(app, CAPTIONS, "view=captions", CAPTIONS_SIZE, false) else { return };
+    exclude_from_capture(&window);
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE, style | WS_EX_NOACTIVATE as isize);
+        }
+    }
+    if let (Some(panel), Ok(scale)) = (app.get_webview_window(PANEL), window.scale_factor())
+        && let (Ok(pos), Ok(size)) = (panel.outer_position(), panel.outer_size())
+    {
+        let (w, h) = ((CAPTIONS_SIZE.0 * scale) as i32, (CAPTIONS_SIZE.1 * scale) as i32);
+        let x = pos.x + (size.width as i32 - w) / 2;
+        let y = pos.y - h - (CAPTIONS_GAP * scale) as i32;
+        let _ = window.set_position(PhysicalPosition::new(x, y.max(0)));
+    }
+    let _ = window.show();
+}
+
+fn start_captions(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<State>();
+    let (language, target) = {
+        let cfg = state.cfg.read().unwrap();
+        (cfg.captions_language(), cfg.captions_target())
+    };
+    captions::session::start(app, language, target)?;
+    update(app, |p| {
+        p.state.phase = Phase::Captions;
+        p.state.started_ms = Some(now_ms());
+        p.state.warning = None;
+    });
+    let handle = app.clone();
+    std::thread::spawn(move || open_captions_window(&handle));
+    Ok(())
 }
 
 pub fn cancelled(app: &AppHandle) {
@@ -438,6 +531,7 @@ pub fn record_outputs() -> Vec<Input> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn record_select(
     app: AppHandle,
     mic: String,
@@ -446,6 +540,8 @@ pub async fn record_select(
     mode: RecordMode,
     denoise: bool,
     effect: CameraEffect,
+    captions_language: Language,
+    captions_target: String,
 ) -> Result<(), String> {
     if phase(&app) != Phase::Setup {
         return Err("recording already started".into());
@@ -461,7 +557,10 @@ pub async fn record_select(
         p.state.mode = mode;
         p.state.denoise = denoise;
         p.state.effect = effect;
+        p.state.captions_language = Some(captions_language);
+        p.state.captions_target = captions_target;
     });
+    refresh_models(&app);
     Ok(())
 }
 
@@ -472,9 +571,9 @@ pub fn record_start(app: AppHandle) -> Result<(), String> {
     }
     let (mic, camera, speaker) = choices(&app);
     let state = app.state::<State>();
-    let (mode, denoise, effect) = {
+    let (mode, denoise, effect, captions_language, captions_target) = {
         let panel = state.panel.lock().unwrap();
-        (panel.state.mode, panel.state.denoise, panel.state.effect)
+        (panel.state.mode, panel.state.denoise, panel.state.effect, panel.state.captions_language, panel.state.captions_target.clone())
     };
     {
         let mut cfg = state.cfg.write().unwrap();
@@ -484,9 +583,19 @@ pub fn record_start(app: AppHandle) -> Result<(), String> {
         cfg.record_camera = camera;
         cfg.record_speaker = speaker;
         cfg.record_mode = mode;
+        if let Some(language) = captions_language {
+            cfg.captions_language = language.code().into();
+            cfg.captions_target = captions_target;
+        }
         cfg.save(&state.path).map_err(|e| e.to_string())?;
     }
     swap_monitor(&app, None);
+    if mode == RecordMode::Captions {
+        return start_captions(&app).inspect_err(|_| {
+            let (mic, _, _) = choices(&app);
+            swap_monitor(&app, listen(&app, &mic, "", false, denoise));
+        });
+    }
     let anchor = app.get_webview_window(PANEL).and_then(|window| {
         let (pos, size, scale) = (window.outer_position().ok()?, window.inner_size().ok()?, window.scale_factor().ok()?);
         let half = CAMERA_SIZE * scale / 2.0;
@@ -527,7 +636,16 @@ pub fn record_resume(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn open_models(app: AppHandle) {
+    crate::settings::show_settings(&app, "models");
+}
+
+#[tauri::command]
 pub fn record_stop(app: AppHandle) {
+    if captions::session::running(&app) {
+        captions::session::stop_session(&app);
+        return;
+    }
     if !crate::recording::stop_recording(&app) {
         crate::hotkeys::trigger(&app, &Action::CancelCountdown);
     }

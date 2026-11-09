@@ -3,7 +3,7 @@ use crate::jobs::{self, Job};
 use crate::overlay::{Outcome, Overlay, Pick, Rect, Shot};
 use crate::recorder::Target;
 use crate::recording::{ended, record};
-use crate::ring::{self, Entry, Ring};
+use crate::ring::{self, Busy, Entry, Ring};
 use crate::toast::{self, Toast};
 use crate::tray::tooltip;
 use crate::{Action, State, capture, draw, events, frame, ocr, paddle, panel, pin, redact, transcript, video};
@@ -264,6 +264,7 @@ impl ApplicationHandler<Action> for Snap {
             Action::CancelCountdown => {
                 self.cancel_countdown();
             }
+            Action::Captions => {}
             Action::Draw => self.pick(event_loop, Pick::Area, Mode::Shot, true),
             Action::Redactions { token, rects } => {
                 if let Some(overlay) = self.overlay.as_mut() {
@@ -396,6 +397,10 @@ impl Snap {
             }
             config::RecordMode::Window => Pick::Window,
             config::RecordMode::Area => Pick::Area,
+            config::RecordMode::Captions => {
+                self.panel_cancelled();
+                return;
+            }
         };
         self.pick(event_loop, pick, Mode::Record, false);
         if self.mode != Mode::Record {
@@ -444,12 +449,13 @@ impl Snap {
         if !enabled {
             return;
         }
-        let recording = state.recording.lock().unwrap().is_some();
-        let entries: Vec<Entry> = items.iter().map(Entry::from).filter(|entry| entry.available(text)).collect();
+        let busy = Busy { recording: state.recording.lock().unwrap().is_some(), captioning: crate::captions::session::running(&self.app) };
+        let counting = state.counting.load(Ordering::Relaxed);
+        let entries: Vec<Entry> = items.iter().map(Entry::from).filter(|entry| entry.available(text, busy, counting)).collect();
         if entries.is_empty() {
             return;
         }
-        self.ring = Ring::open(event_loop, entries, recording, vi, keys, idle);
+        self.ring = Ring::open(event_loop, entries, busy, vi, keys, idle);
         if self.ring.is_none() {
             tooltip(&self.app, "Snapr: ring failed");
         }

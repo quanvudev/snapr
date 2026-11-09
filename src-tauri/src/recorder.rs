@@ -78,7 +78,7 @@ impl Handler {
             return Ok(());
         }
         let sent = audio.try_iter().try_for_each(|chunk| {
-            let bytes: Vec<u8> = chunk.iter().flat_map(|s| s.to_le_bytes()).collect();
+            let bytes: Vec<u8> = chunk.pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
             encoder.send_audio_buffer(&bytes, 0)
         });
         sent.map_err(|e| {

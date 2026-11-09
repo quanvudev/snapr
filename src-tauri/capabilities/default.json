@@ -6,6 +6,7 @@
     "main",
     "panel",
     "camera",
+    "captions",
     "splash"
   ],
   "permissions": [

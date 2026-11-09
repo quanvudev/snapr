@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AppWindow,
+  Captions,
   ChevronUp,
+  Languages,
   Circle,
   Mic,
   MicOff,
@@ -29,8 +31,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CameraFeed } from "@/components/camera-feed";
-import { api, type CameraEffect, type CameraLook, type InputDevice, type PanelState, type RecordMode } from "@/lib/api";
+import {
+  api,
+  type CameraEffect,
+  type CameraLook,
+  type CaptionLanguage,
+  type InputDevice,
+  type PanelState,
+  type RecordMode,
+} from "@/lib/api";
 import type { Strings } from "@/lib/i18n";
+import { CAPTION_LANGUAGES } from "@/lib/captions";
+import { LANGUAGES, languageName } from "@/lib/languages";
+
+const OFF = "off";
 
 type Camera = { id: string; name: string };
 
@@ -109,13 +123,15 @@ function Preview({
   return <CameraFeed stream={stream} effect={effect} options={options} image={image} />;
 }
 
-export function SetupPanel({ state, level, t }: { state: PanelState; level: number; t: Strings }) {
+export function SetupPanel({ state, level, t, ui }: { state: PanelState; level: number; t: Strings; ui: string }) {
   const [mic, setMic] = useState(state.mic);
   const [camera, setCamera] = useState(state.camera);
   const [speaker, setSpeaker] = useState(state.speaker);
   const [denoise, setDenoise] = useState(state.denoise);
   const [effect, setEffect] = useState<CameraEffect>(state.effect);
   const [mode, setMode] = useState<RecordMode>(state.mode);
+  const [spoken, setSpoken] = useState<CaptionLanguage>(state.captions_language ?? "en");
+  const [target, setTarget] = useState(state.captions_target || OFF);
   const [inputs, setInputs] = useState<InputDevice[]>([]);
   const [outputs, setOutputs] = useState<InputDevice[]>([]);
   const { cameras, error, loaded } = useCameras();
@@ -124,7 +140,14 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
   const first = useRef(true);
   const starting = useRef(false);
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState<"mode" | "audio" | "camera" | null>(null);
+  const [open, setOpen] = useState<"mode" | "audio" | "camera" | "languages" | null>(null);
+  const captions = mode === "captions";
+  const silent = mic === "" && speaker === "";
+  const startBlocked = captions && (!state.captions_ready || silent);
+
+  useEffect(() => {
+    setMode(state.mode);
+  }, [state.mode]);
 
   useEffect(() => {
     const close = () => setOpen(null);
@@ -133,7 +156,7 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
   }, []);
 
   const start = () => {
-    if (starting.current) return;
+    if (starting.current || startBlocked) return;
     starting.current = true;
     setBusy(true);
     api.recordStart().catch(() => {
@@ -165,8 +188,8 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
       first.current = false;
       return;
     }
-    api.recordSelect(mic, camera, speaker, mode, denoise, effect);
-  }, [mic, camera, speaker, mode, denoise, effect]);
+    api.recordSelect(mic, camera, speaker, mode, denoise, effect, spoken, target);
+  }, [mic, camera, speaker, mode, denoise, effect, spoken, target]);
 
   useEffect(() => {
     setFailed(false);
@@ -184,7 +207,7 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [startBlocked]);
 
   const micName = (id: string) =>
     id === "" ? t.recMicNone : id === "default" ? t.recMicDefault : (inputs.find((d) => d.id === id)?.name ?? id);
@@ -200,11 +223,16 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
     { value: "fullscreen", label: t.recModeFullscreen, Icon: Monitor },
     { value: "window", label: t.recModeWindow, Icon: AppWindow },
     { value: "area", label: t.recModeArea, Icon: SquareDashed },
+    { value: "captions", label: t.recModeCaptions, Icon: Captions },
   ] as const;
   const current = modes.find((m) => m.value === mode) ?? modes[0];
   const ring = (1 + Math.min(1, Math.sqrt(level)) * 3).toFixed(1);
   const blocked = error || failed;
-  const live = camera !== "" && !failed;
+  const live = camera !== "" && !failed && !captions;
+  const code = (c: string) => c.toUpperCase();
+  const pair = target === OFF || target === spoken ? code(spoken) : `${code(spoken)} → ${code(target)}`;
+  const startLabel = !captions ? t.recStart : !state.captions_ready ? t.capModelMissing : silent ? t.capNoAudio : t.recStart;
+  const needsTranslation = captions && target !== OFF && target !== spoken && !state.translate_ready;
 
   return (
     <div className="flex flex-col items-center gap-2 p-4 text-foreground">
@@ -212,7 +240,27 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
         data-tauri-drag-region
         className={`relative flex size-52 items-center justify-center rounded-full drop-shadow-[0_10px_12px_rgba(0,0,0,0.6)] ${live ? "" : "bg-muted"}`}
       >
-        {live ? (
+        {captions ? (
+          <div
+            data-tauri-drag-region
+            className="flex flex-col items-center gap-2 px-8 text-center text-muted-foreground"
+          >
+            <Captions data-tauri-drag-region className="size-8" />
+            <span data-tauri-drag-region className="text-lg font-semibold text-foreground">
+              {pair}
+            </span>
+            {!state.captions_ready || needsTranslation ? (
+              <>
+                <span data-tauri-drag-region className="text-xs">
+                  {!state.captions_ready ? t.capModelMissing : t.capTranslateMissing}
+                </span>
+                <Button size="xs" variant="outline" onClick={() => api.openModels()}>
+                  {t.capOpenModels}
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ) : live ? (
           <div
             data-tauri-drag-region
             className="size-full overflow-hidden rounded-full"
@@ -282,15 +330,15 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
                 variant="ghost"
                 size="icon"
                 className="size-8 rounded-full"
-                aria-label={t.recStart}
-                disabled={busy}
+                aria-label={startLabel}
+                disabled={busy || startBlocked}
                 onClick={start}
               />
             }
           >
             <Circle className="size-5 fill-[#ff623e] text-[#ff623e]" />
           </TooltipTrigger>
-          <TooltipContent side="top">{t.recStart}</TooltipContent>
+          <TooltipContent side="top">{startLabel}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -380,13 +428,65 @@ export function SetupPanel({ state, level, t }: { state: PanelState; level: numb
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {captions ? (
+          <DropdownMenu open={open === "languages"} onOpenChange={(next) => setOpen(next ? "languages" : null)}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={<Button variant="ghost" className="h-9 gap-1 rounded-full" aria-label={t.capLanguages} />}
+                  />
+                }
+              >
+                <Languages />
+                <span className="text-xs font-semibold">{pair}</span>
+                <ChevronUp className="size-3 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="top">{t.capLanguages}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent side="top" className="w-[calc(100vw-2rem)] overflow-hidden p-0">
+              <ScrollArea className="[&>[data-slot=scroll-area-viewport]]:max-h-[calc(var(--available-height)-0.5rem)]">
+                <div className="p-1">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>{t.capSpoken}</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={spoken} onValueChange={(v) => setSpoken(v as CaptionLanguage)}>
+                      {CAPTION_LANGUAGES.map((c) => (
+                        <DropdownMenuRadioItem key={c} value={c}>
+                          {languageName(c, ui)}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>{t.capTranslate}</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={target} onValueChange={(v) => setTarget(v as string)}>
+                      <DropdownMenuRadioItem value={OFF}>{t.capOff}</DropdownMenuRadioItem>
+                      {LANGUAGES.map((l) => (
+                        <DropdownMenuRadioItem key={l.code} value={l.code}>
+                          <span className="truncate">{ui === "vi" ? l.vi : l.en}</span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuGroup>
+                </div>
+              </ScrollArea>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+
         <DropdownMenu open={open === "camera"} onOpenChange={(next) => setOpen(next ? "camera" : null)}>
           <Tooltip>
             <TooltipTrigger
               render={
                 <DropdownMenuTrigger
                   render={
-                    <Button variant="ghost" className="h-9 gap-1 rounded-full" aria-label={cameraName(camera)} />
+                    <Button
+                      variant="ghost"
+                      className="h-9 gap-1 rounded-full"
+                      aria-label={cameraName(camera)}
+                      disabled={captions}
+                    />
                   }
                 />
               }

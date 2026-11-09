@@ -135,6 +135,7 @@ pub enum RecordMode {
     Fullscreen,
     Window,
     Area,
+    Captions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -332,7 +333,13 @@ pub struct Config {
     pub ring: Ring,
     #[serde(default)]
     pub folders_migrated: bool,
+    #[serde(default)]
+    pub captions_language: String,
+    #[serde(default)]
+    pub captions_target: String,
 }
+
+pub const CAPTIONS_OFF: &str = "off";
 
 fn default_mic() -> String {
     "default".into()
@@ -461,6 +468,8 @@ impl Default for Config {
             hotkeys: Hotkeys::default(),
             ring: Ring::default(),
             folders_migrated: true,
+            captions_language: String::new(),
+            captions_target: String::new(),
         }
     }
 }
@@ -521,6 +530,20 @@ impl Config {
 
     pub fn transcript_language(&self) -> &str {
         TRANSCRIPT_LANGUAGES.into_iter().find(|&l| l == self.transcript_language).unwrap_or(TRANSCRIPT_AUTO)
+    }
+
+    pub fn captions_language(&self) -> crate::captions::Language {
+        crate::captions::Language::parse(&self.captions_language).unwrap_or(crate::captions::Language::En)
+    }
+
+    pub fn captions_target(&self) -> Option<&'static str> {
+        let source = self.captions_language().code();
+        match self.captions_target.as_str() {
+            CAPTIONS_OFF => None,
+            code => crate::translate::languages::find(code)
+                .map(|l| l.code)
+                .or_else(|| Some(crate::translate::languages::default_target(source, &self.language))),
+        }
     }
 
     pub fn redact_paddle(&self) -> bool {
@@ -592,6 +615,20 @@ mod tests {
             toml::from_str("record_camera_effect = \"image\"
 record_camera_image = \"C:/bg.png\"").unwrap();
         assert_eq!(image.camera_effect(), CameraEffect::Image);
+    }
+
+    #[test]
+    fn captions_default_to_english() {
+        let old: Config = toml::from_str("record_mode = \"area\"").unwrap();
+        assert_eq!(old.captions_language(), crate::captions::Language::En);
+        let vi_ui = Config { language: "vi".into(), ..old.clone() };
+        assert_eq!(vi_ui.captions_target(), Some("vi"));
+        let japanese = Config { captions_language: "ja".into(), captions_target: "vi".into(), ..old.clone() };
+        assert_eq!((japanese.captions_language(), japanese.captions_target()), (crate::captions::Language::Ja, Some("vi")));
+        let off = Config { captions_target: CAPTIONS_OFF.into(), ..old.clone() };
+        assert_eq!(off.captions_target(), None);
+        let captions: Config = toml::from_str("record_mode = \"captions\"").unwrap();
+        assert_eq!(captions.record_mode, RecordMode::Captions);
     }
 
     #[test]

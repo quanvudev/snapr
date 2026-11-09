@@ -313,7 +313,8 @@ pub fn paddle_delete(app: AppHandle, state: tauri::State<State>, size: PaddleSiz
     let translate_busy =
         state.translate_download.lock().unwrap().is_some()
         || state.cutout_download.lock().unwrap().is_some()
-        || state.upscale_download.lock().unwrap().is_some();
+        || state.upscale_download.lock().unwrap().is_some()
+        || state.captions_download.lock().unwrap().is_some();
     let download = state.download.lock().unwrap();
     if download.as_ref().is_some_and(|d| d.size == size) {
         return Err("this size is downloading".into());

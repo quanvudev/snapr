@@ -35,12 +35,12 @@ export function PanelApp() {
   }, [ready, state?.phase]);
 
   if (!state || !cfg) return null;
-  const compact = state.phase === "recording" || state.phase === "countdown";
+  const compact = state.phase === "recording" || state.phase === "countdown" || state.phase === "captions";
   if (state.phase !== "setup" && !compact) return null;
 
   return (
     <div ref={root} className="w-fit">
-      {compact ? <RecordingPanel state={state} t={t} /> : <SetupPanel state={state} level={level} t={t} />}
+      {compact ? <RecordingPanel state={state} t={t} /> : <SetupPanel state={state} level={level} t={t} ui={cfg.language} />}
     </div>
   );
 }

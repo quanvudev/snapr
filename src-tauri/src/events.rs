@@ -19,3 +19,6 @@ pub const RECORD_LEVEL: &str = "record-level";
 pub const ACCELERATION_PROGRESS: &str = "acceleration-progress";
 pub const ACCELERATION_DONE: &str = "acceleration-done";
 pub const SPLASH_DONE: &str = "splash-done";
+pub const CAPTIONS_PROGRESS: &str = "captions-progress";
+pub const CAPTIONS_DONE: &str = "captions-done";
+pub const LIVE_CAPTION: &str = "live-caption";
