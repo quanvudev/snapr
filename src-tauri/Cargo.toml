@@ -38,7 +38,7 @@ windows-capture = "2"
 cpal = "0.18"
 windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Storage_Streams", "Foundation", "Foundation_Collections", "Win32_System_WinRT", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Media_Transcoding", "Media_Editing", "Media_MediaProperties", "Storage", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_Graphics_Dxgi"] }
 tauri-plugin-notification = "2"
-windows-core = "0.62"
+windows-core = "0.100"
 windows-future = "0.3.2"
 gif = "0.14.2"
 windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Storage_Xps", "Win32_UI_HiDpi", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
